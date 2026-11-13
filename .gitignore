@@ -1,0 +1,25 @@
+# Default: keep every new file private.
+*
+
+# Explicitly approved repository files.
+!/.gitattributes
+!/.gitignore
+!/README.md
+
+# Local material and credentials must remain private.
+.local/
+AGENTS.md
+.agents/
+.codex/
+.claude/
+.aws/
+.ssh/
+.vscode/
+.idea/
+.gitmodules
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
