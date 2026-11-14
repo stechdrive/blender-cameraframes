@@ -200,10 +200,9 @@ def make_batches(scene, obj, box):
                     line([[(x, y + 4), (x + 4, y), (x, y - 4), (x - 4, y), (x, y + 4)]], (1, 0.75, 0.2), paper=False)
     axis, horizon = camera.auxiliary(scene, obj)
     if s.show_axis and 0 <= axis[0] <= s.width and 0 <= axis[1] <= s.height:
-        x, y = screen_point(axis, box, s)
-        line([[(x - 8, y), (x + 8, y)], [(x, y - 8), (x, y + 8)]], (1, 0.35, 0.35), paper=False)
+        line(geometry.axis_strokes(axis), geometry.AXIS_COLOR, max(0.7, s.line_width * scale))
     if s.show_horizon and horizon:
-        line([horizon], (0.4, 1, 0.5), 1)
+        line([horizon], geometry.HORIZON_COLOR, max(0.7, s.line_width * scale))
     return batches, labels
 
 

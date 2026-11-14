@@ -266,7 +266,7 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
 class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
     bl_idname = 'cf.export_psd'
     bl_label = 'ガイドPSDを書き出す'
-    bl_description = 'FRAMEごとと軌道を透明な別レイヤーで保存します。本画はレンダーしません'
+    bl_description = 'FRAME・軌道・光軸・アイレベルを透明な別レイヤーで保存します。本画はレンダーしません'
     filename_ext = '.psd'
     filter_glob: StringProperty(default='*.psd', options={'HIDDEN'})
 
@@ -278,6 +278,9 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         from .psd import write_psd
         obj = camera.active(context.scene)
         s = obj.cf_camera
+        if obj.data.type not in {'PERSP', 'ORTHO'}:
+            self.report({'ERROR'}, '透視または正投影のカメラを使用してください')
+            return {'CANCELLED'}
         if not camera.synced(context.scene, obj):
             self.report({'ERROR'}, 'シーンの出力設定が異なります。「保存設定を適用」を実行してください')
             return {'CANCELLED'}
@@ -289,8 +292,12 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
             return {'CANCELLED'}
         width, height = s.width * s.percentage // 100, s.height * s.percentage // 100
         sx, sy = width / s.width, height / s.height
+        axis, horizon, omitted = camera.export_auxiliary(context.scene, obj)
         layers = [(name, color, weight * min(sx, sy), [[(x * sx, y * sy) for x, y in path] for path in paths])
-                  for name, color, weight, paths in geometry.guide_layers(s)]
+                  for name, color, weight, paths in geometry.guide_layers(s, axis=axis, horizon=horizon)]
+        if not layers:
+            self.report({'ERROR'}, '用紙内に出力できるガイドがありません' + (' / ' + ' / '.join(omitted) if omitted else ''))
+            return {'CANCELLED'}
         wm = context.window_manager
         wm.progress_begin(0, 100)
         try:
@@ -301,7 +308,8 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
             return {'CANCELLED'}
         finally:
             wm.progress_end()
-        self.report({'INFO'}, f'ガイドPSDを保存: {width} × {height}px / {s.ppi:g} PPI')
+        self.report({'INFO'}, f'ガイドPSDを保存: {width} × {height}px / {s.ppi:g} PPI' +
+                    (' / ' + ' / '.join(omitted) if omitted else ''))
         return {'FINISHED'}
 
 

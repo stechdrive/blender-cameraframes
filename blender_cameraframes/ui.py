@@ -140,10 +140,16 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
     bl_idname = 'CF_PT_export'
 
     def draw(self, context):
-        s, layout = camera.active(context.scene).cf_camera, self.layout
+        obj = camera.active(context.scene)
+        s, layout = obj.cf_camera, self.layout
         layout.prop(s, 'line_width')
         layout.prop(s, 'ppi', text='PSDのPPI')
         layout.prop(s, 'export_path')
+        layout.prop(s, 'export_axis')
+        layout.prop(s, 'export_horizon')
+        if obj.data.type in {'PERSP', 'ORTHO'} and camera.synced(context.scene, obj):
+            for notice in camera.export_auxiliary(context.scene, obj)[2]:
+                layout.label(text=notice, icon='INFO')
         layout.label(text='FRAME一覧の矢印で出力対象を選択')
         width, height = s.width * s.percentage // 100, s.height * s.percentage // 100
         layout.label(text=f'{width * 25.4 / s.ppi:.1f} × {height * 25.4 / s.ppi:.1f} mm')

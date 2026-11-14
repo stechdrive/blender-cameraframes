@@ -54,6 +54,10 @@ class CFCamera(bpy.types.PropertyGroup):
     show_guides: BoolProperty(name='ガイドを表示', default=True, update=redraw)
     show_axis: BoolProperty(name='光軸', default=True, update=redraw)
     show_horizon: BoolProperty(name='アイレベル', default=True, update=redraw)
+    export_axis: BoolProperty(name='光軸をPSDへ', default=True,
+                             description='画面表示とは独立して、光軸を別レイヤーへ出力します')
+    export_horizon: BoolProperty(name='アイレベルをPSDへ', default=True,
+                                description='画面表示とは独立して、アイレベルを別レイヤーへ出力します')
 
 
 class CFCameraEntry(bpy.types.PropertyGroup):

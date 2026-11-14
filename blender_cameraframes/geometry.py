@@ -6,6 +6,15 @@ Handle vectors are relative to their FRAME centre; angles are clockwise.
 """
 from math import atan, cos, degrees, hypot, pi, sin
 
+AXIS_COLOR = (1.0, 0.35, 0.35)
+HORIZON_COLOR = (0.4, 1.0, 0.5)
+
+
+def axis_strokes(point):
+    """A cross with a 16px span in the 100% paper coordinate system."""
+    x, y = point
+    return [[(x - 8, y), (x + 8, y)], [(x, y - 8), (x, y + 8)]]
+
 
 def rotate(point, angle):
     x, y = point
@@ -89,7 +98,7 @@ def trajectory(frames, ratio, curved=True, corner_paths=False):
     return paths
 
 
-def guide_layers(settings):
+def guide_layers(settings, *, axis, horizon):
     """Bottom-to-top layers, each (name, colour, line width, polylines)."""
     ratio = settings.ratio_x / settings.ratio_y
     result = []
@@ -100,6 +109,10 @@ def guide_layers(settings):
     if settings.export_path and len(settings.frames) > 1:
         paths = trajectory(settings.frames, ratio, settings.path_type == 'BEZIER', settings.corner_paths)
         result.append(('軌道', tuple(settings.path_color), settings.line_width, paths))
+    if settings.export_axis and axis is not None and 0 <= axis[0] <= settings.width and 0 <= axis[1] <= settings.height:
+        result.append(('光軸', AXIS_COLOR, settings.line_width, axis_strokes(axis)))
+    if settings.export_horizon and horizon is not None:
+        result.append(('アイレベル', HORIZON_COLOR, settings.line_width, [horizon]))
     return result
 
 

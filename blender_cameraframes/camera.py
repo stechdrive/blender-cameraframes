@@ -294,3 +294,23 @@ def auxiliary(scene, obj):
         if len(hits) >= 2:
             horizon = max(((a, b) for a in hits for b in hits), key=lambda pair: math.dist(*pair))
     return axis, horizon
+
+
+def export_auxiliary(scene, obj):
+    """Evaluate requested auxiliary guides and explain any omitted layer.
+
+    Display toggles deliberately do not participate in export selection.
+    """
+    s = obj.cf_camera
+    if not (s.export_axis or s.export_horizon):
+        return None, None, []
+    axis, horizon = auxiliary(scene, obj)
+    omitted = []
+    if s.export_axis and not (0 <= axis[0] <= s.width and 0 <= axis[1] <= s.height):
+        omitted.append('光軸: 用紙外のため出力なし')
+    if s.export_horizon:
+        if obj.data.type != 'PERSP':
+            omitted.append('アイレベル: 正投影では出力なし')
+        elif horizon is None:
+            omitted.append('アイレベル: 用紙内にないため出力なし')
+    return axis, horizon, omitted

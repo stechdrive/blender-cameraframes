@@ -128,8 +128,8 @@ def write_psd(path, width, height, ppi, layers, progress=None):
         raise ValueError('PSDは各辺4～30000px、合計6400万画素までです')
     if not math.isfinite(ppi) or not 1 <= ppi <= 10000:
         raise ValueError('PPIは1～10000です')
-    if not layers or len(layers) > 129:
-        raise ValueError('出力するガイドを1～129レイヤーにしてください')
+    if not layers or len(layers) > 131:
+        raise ValueError('出力するガイドを1～131レイヤーにしてください')
     path = Path(path)
     output_tmp = None
     try:
