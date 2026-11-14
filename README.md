@@ -20,7 +20,126 @@
 - 透視投影・正投影のローカルカメラに対応します。
 - インストール後の操作やPSD出力は、オフラインで利用できます。
 
-配布ZIPをBlenderの「プリファレンス → エクステンション」メニューにある「ディスクからインストール」で選び、有効にしてください。3Dビューのサイドバー（Nキー）に **Camera Frames** が追加されます。
+導入方法は次の2つです。どちらか一方を選んでください。
+
+| 方法 | インストール後の更新 |
+| --- | --- |
+| [Blenderから更新できるように導入する（推奨）](#install-repository) | 起動時に新しい版を確認し、Blender内の「更新」でインストール |
+| [ZIPをダウンロードして導入する](#install-zip) | 新しいZIPをダウンロードして入れ替え |
+
+**すでにZIPから導入している方**は、[更新対応への切り替え](#switch-from-zip)を先に確認してください。
+
+以下は **Windows・Blender 5.3の日本語UI** で確認した手順です。スクリーンキャプチャは操作する部分を抜粋しています。画像中のバージョン番号は撮影時の例です。
+
+どちらの方法でも、Blender上部の **「編集」→「プリファレンス…」** から設定画面を開きます。
+
+![Blender 5.3の編集メニューにあるプリファレンス](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-preferences.png)
+
+<a id="install-repository"></a>
+
+### Blenderから更新できるように導入する（推奨）
+
+この方法では、ZIPを自分でダウンロードする必要はありません。Blenderに更新用リポジトリを登録して導入します。
+
+**1.「エクステンションを入手」を開く**
+
+プリファレンス左側の **「エクステンションを入手」** を選びます。初回の案内が表示されたら **「オンラインアクセスを許可」** を押します。すでに許可している場合、この案内は表示されません。
+
+以前「オフライン継続」を選んだ場合は、**「システム」→「ネットワーク」→「オンラインアクセスを許可」** をオンにしてから戻ってください。
+
+![エクステンションを入手とオンラインアクセスの案内](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-extensions.png)
+
+**2. 更新用リポジトリを追加する**
+
+右上の **「リポジトリ」→「＋」→「リモートリポジトリを追加」** を選びます。
+
+![リポジトリのプラスボタンからリモートリポジトリを追加](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-menu.png)
+
+**3. URLを入力して作成する**
+
+「URL」に次のアドレスをコピーして貼り付け、**「起動時に更新チェック」** をオンにして **「作成」** を押します。
+
+```text
+https://stechdrive.github.io/blender-cameraframes/index.json
+```
+
+「アクセストークンが必要」と「カスタムディレクトリ」はオフのままで使えます。URLは画面上では途中が省略されることがあります。登録後のリポジトリ名は **stechdrive.github.io** です。同じURLが登録済みなら、追加せず次へ進んでください。
+
+![更新用URLと起動時に更新チェックを設定して作成](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-url.png)
+
+**4. Camera Framesをインストールする**
+
+リポジトリのポップアップの外側をクリックして閉じ、上部の検索欄に **Camera Frames** と入力します。「利用可能」に出てきたCamera Framesの **「インストール」** を押します。左の矢印で詳細を開くと、リポジトリが **stechdrive.github.io** であることを確認できます。
+
+![リポジトリから見つかったCamera Framesのインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-package.png)
+
+完了したら、[インストール後の確認](#check-installation)へ進んでください。
+
+<a id="install-zip"></a>
+
+### ZIPをダウンロードして導入する
+
+**1. 配布ZIPをダウンロードする**
+
+[最新リリースのページ](https://github.com/stechdrive/blender-cameraframes/releases/latest)を開き、ページ下部の **Assets** から **`camera_frames-バージョン番号.zip`** をクリックして保存します。撮影時のファイル名は `camera_frames-0.1.9.zip` です。**Source code (zip)** と **Source code (tar.gz)** はインストール用の配布物ではありません。
+
+**2.「ディスクからインストール…」を選ぶ**
+
+Blenderの **「編集」→「プリファレンス…」→「エクステンションを入手」** を開きます。右上の **「▼」→「ディスクからインストール…」** を選びます。ZIPからの導入には、Blenderのオンラインアクセス許可は不要です。
+
+![エクステンション設定メニューのディスクからインストール](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-disk-menu.png)
+
+**3. 保存したZIPを選ぶ**
+
+ダウンロードしたZIPを **展開せずに** 選びます。「インストール後有効化」をオンにし、右下の **「ディスクからインストール…」** を押します。
+
+![ファイル選択画面下部のZIPファイル名とインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-disk-file.png)
+
+完了したら、次の確認を行ってください。ZIP版を使い続ける場合は、新しい版が出たときも同じ手順で新しいZIPを指定します。
+
+<a id="check-installation"></a>
+
+### インストール後の確認
+
+プリファレンス左側の **「アドオン」** を開き、**Camera Frames** を検索します。名前の左側のチェックがオンなら有効です。オフの場合はオンにしてください。
+
+![アドオン一覧でCamera Framesが有効になっている状態](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-enabled.png)
+
+プリファレンスを閉じ、**3Dビューポートにマウスを置いてNキー** を押すと、サイドバーの **Camera Frames** タブから使えます。プリファレンスの自動保存をオフにしている場合は、閉じる前に **「プリファレンスを保存」** を押してください。
+
+<a id="update-extension"></a>
+
+### Blender内で更新する
+
+リポジトリ版では、**「起動時に更新チェック」は新しい版の確認を自動で行います。インストールは「更新」を押して実行します。**
+
+**1. 更新情報を確認する**
+
+作業中の `.blend` を保存し、**「プリファレンス…」→「エクステンションを入手」** でCamera Framesを検索します。すぐに最新の情報を確認したい場合は、右上の **「▼」→「リモートをリフレッシュ」** を選びます。
+
+![更新情報を取得するリモートをリフレッシュ](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-update-menu.png)
+
+**2. Camera Framesの「更新」を押す**
+
+新しい版があると、Camera Framesの行にバージョン番号と **「更新」** が表示されます。このボタンを押して更新します。下は0.1.8から0.1.9へ更新するときの例です。
+
+![Camera Framesの行に表示される更新ボタンと更新前後のバージョン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-update.png)
+
+更新が終わると「更新」ボタンが消え、左の矢印で開く詳細の「バージョン」が新しい番号になります。
+
+<a id="switch-from-zip"></a>
+
+### ZIP版から更新対応へ切り替える
+
+ZIPで導入したものは、更新用リポジトリを追加するだけでは、そのリポジトリから更新されるようにはなりません。次の手順でリポジトリ版へ入れ替えます。
+
+1. 作業中の `.blend` を保存します。カメラごとの設定・撮影FRAME・軌道はこのファイルに保存されます。
+2. **「プリファレンス…」→「アドオン」** でCamera Framesを検索し、名前の左側のチェックを外して無効にします。
+3. **「エクステンションを入手」** でCamera Framesを検索します。**「インストール済み」** にある旧版の行の右端 **「▼」→「アンインストール」** を選びます。
+4. 上の[更新対応の導入手順](#install-repository)に沿って、リポジトリ版をインストールします。
+5. [有効化を確認](#check-installation)し、保存した `.blend` を開いて設定を確認します。
+
+![インストール済みのZIP版の行からアンインストールを選ぶ](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-remove-local.png)
 
 ## 基本の使い方
 
