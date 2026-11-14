@@ -4,8 +4,10 @@
 # Explicitly approved repository files.
 !/.github/
 !/blender_cameraframes/
+!/docs/
 !/extensions/
 !/.github/workflows/
+!/docs/images/
 !/.gitattributes
 !/.github/workflows/extension-index.yml
 !/.gitignore
@@ -22,6 +24,10 @@
 !/blender_cameraframes/properties.py
 !/blender_cameraframes/psd.py
 !/blender_cameraframes/ui.py
+!/docs/images/composition-expansion.png
+!/docs/images/frame-controls.png
+!/docs/images/guide-psd-layers.png
+!/docs/images/vertical-pan.png
 !/extensions/index.json
 
 # Local material and credentials must remain private.
