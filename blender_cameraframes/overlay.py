@@ -9,7 +9,10 @@ from . import camera, geometry
 
 _handler = None
 _shader = None
-_cache = OrderedDict()
+_frame_cache = OrderedDict()
+_path_cache = OrderedDict()
+_auxiliary_cache = OrderedDict()
+_markers = {}
 _last_error = None
 _view_states = OrderedDict()
 
@@ -162,48 +165,129 @@ def frame_key(f):
             tuple(f.color), f.handle_mode, tuple(f.handle_in), tuple(f.handle_out))
 
 
-def make_batches(scene, obj, box):
+def cached(cache, key, build, *args):
+    if key not in cache:
+        cache[key] = build(*args)
+        if len(cache) > 4:
+            cache.popitem(last=False)
+    cache.move_to_end(key)
+    return cache[key]
+
+
+def line_batch(paths):
     from gpu_extras.batch import batch_for_shader
-    s = obj.cf_camera
+    points = [(p[0], p[1], 0) for path in paths for pair in zip(path, path[1:]) for p in pair]
+    return batch_for_shader(_shader, 'LINES', {'pos': points}) if points else None
+
+
+def make_frame_batches(s):
+    """Paper-space frames and handle locations, independent of the viewport."""
     ratio = s.ratio_x / s.ratio_y
-    batches, labels = [], []
-    def line(paths, color, width=1.5, paper=True):
-        points = []
-        for path in paths:
-            path = [screen_point(p, box, s) for p in path] if paper else path
-            for a, b in zip(path, path[1:]):
-                points.extend(((a[0], a[1], 0), (b[0], b[1], 0)))
-        if points:
-            batches.append((batch_for_shader(_shader, 'LINES', {'pos': points}), (*color[:3], 1), width))
-    scale = (box[2] - box[0]) / s.width
-    if s.show_path and len(s.frames) > 1:
-        line(geometry.trajectory(s.frames, ratio, s.path_type == 'BEZIER', s.corner_paths), s.path_color, max(0.7, s.line_width * scale))
+    batches, labels, markers = [], [], []
     for i, f in enumerate(s.frames):
         if not f.visible:
             continue
         points = geometry.corners(f, ratio)
-        line([points + points[:1]], f.color, max(0.7, s.line_width * scale))
-        label_point = screen_point(points[0], box, s)
-        labels.append((f.name, label_point, tuple(f.color)))
+        color = tuple(f.color)
+        batches.append((line_batch([points + points[:1]]), color, None))
+        labels.append((f.name, points[0], color))
         if f.selected or i == s.frame_index:
-            pp = screen_point(geometry.pivot(f, ratio), box, s)
-            line([[(pp[0] - 5, pp[1]), (pp[0] + 5, pp[1])], [(pp[0], pp[1] - 5), (pp[0], pp[1] + 5)]], (1, 1, 1), paper=False)
+            markers.append(('CROSS', geometry.pivot(f, ratio), (1, 1, 1)))
             for p in points:
-                x, y = screen_point(p, box, s)
-                line([[(x - 4, y - 4), (x + 4, y - 4), (x + 4, y + 4), (x - 4, y + 4), (x - 4, y - 4)]], (1, 1, 1), paper=False)
+                markers.append(('BOX', p, (1, 1, 1)))
             if s.path_type == 'BEZIER' and s.show_path:
                 hi, ho = geometry.handles(s.frames, i)
                 ends = [(f.x + h[0], f.y + h[1]) for h in (hi, ho)]
-                line([[ends[0], (f.x, f.y), ends[1]]], (0.8, 0.8, 0.8), 1)
+                batches.append((line_batch([[ends[0], (f.x, f.y), ends[1]]]), (0.8, 0.8, 0.8), 1))
                 for p in ends:
-                    x, y = screen_point(p, box, s)
-                    line([[(x, y + 4), (x + 4, y), (x, y - 4), (x - 4, y), (x, y + 4)]], (1, 0.75, 0.2), paper=False)
-    axis, horizon = camera.auxiliary(scene, obj)
-    if s.show_axis and 0 <= axis[0] <= s.width and 0 <= axis[1] <= s.height:
-        line(geometry.axis_strokes(axis), geometry.AXIS_COLOR, max(0.7, s.line_width * scale))
-    if s.show_horizon and horizon:
-        line([horizon], geometry.HORIZON_COLOR, max(0.7, s.line_width * scale))
-    return batches, labels
+                    markers.append(('DIAMOND', p, (1, 0.75, 0.2)))
+    return batches, labels, markers
+
+
+def make_path_batch(s):
+    return line_batch(geometry.trajectory(s.frames, s.ratio_x / s.ratio_y, s.path_type == 'BEZIER', s.corner_paths))
+
+
+def make_auxiliary_batches(scene, obj):
+    s = obj.cf_camera
+    axis, horizon = camera.auxiliary(scene, obj, include_axis=s.show_axis, include_horizon=s.show_horizon)
+    batches = []
+    if axis is not None and 0 <= axis[0] <= s.width and 0 <= axis[1] <= s.height:
+        batches.append((line_batch(geometry.axis_strokes(axis)), geometry.AXIS_COLOR, None))
+    if horizon is not None:
+        batches.append((line_batch([horizon]), geometry.HORIZON_COLOR, None))
+    return batches
+
+
+def batches_for(scene, obj):
+    """Only geometry inputs invalidate GPU buffers; view transforms never do."""
+    s = obj.cf_camera
+    frames = tuple(frame_key(f) for f in s.frames)
+    key = (s.ratio_x, s.ratio_y, s.frame_index, s.show_path, s.path_type, frames)
+    batches, labels, markers = cached(_frame_cache, key, make_frame_batches, s)
+    path = None
+    if s.show_path and len(s.frames) > 1:
+        # Name, selection, visibility and colours do not change the trajectory.
+        path_key = (s.ratio_x, s.ratio_y, s.path_type, s.corner_paths,
+                    tuple((f[1:5], f[9:12]) for f in frames))
+        path = cached(_path_cache, path_key, make_path_batch, s)
+    auxiliary = []
+    if s.show_axis or (s.show_horizon and obj.data.type == 'PERSP'):
+        up = camera.horizon_normal(obj) if s.show_horizon and obj.data.type == 'PERSP' else None
+        key = (s.width, s.height, s.aspect_x, s.aspect_y, tuple(camera.projection(obj).values()),
+               s.show_axis, s.show_horizon, up)
+        auxiliary = cached(_auxiliary_cache, key, make_auxiliary_batches, scene, obj)
+    return path, batches, auxiliary, labels, markers
+
+
+def marker_batch(kind):
+    if kind not in _markers:
+        paths = {'CROSS': [[(-5, 0), (5, 0)], [(0, -5), (0, 5)]],
+                 'BOX': [[(-4, -4), (4, -4), (4, 4), (-4, 4), (-4, -4)]],
+                 'DIAMOND': [[(0, 4), (4, 0), (0, -4), (-4, 0), (0, 4)]]}
+        _markers[kind] = line_batch(paths[kind])
+    return _markers[kind]
+
+
+def draw_batch(batch, color, width):
+    if batch is not None:
+        _shader.uniform_float('color', (*color, 1))
+        _shader.uniform_float('lineWidth', width)
+        batch.draw(_shader)
+
+
+def draw_guides(scene, obj, box, viewport_size):
+    import gpu
+    s = obj.cf_camera
+    path, batches, auxiliary, labels, markers = batches_for(scene, obj)
+    scale_x, scale_y = (box[2] - box[0]) / s.width, (box[3] - box[1]) / s.height
+    width = max(0.7, s.line_width * scale_x)
+    _shader.bind()
+    _shader.uniform_float('viewportSize', viewport_size)
+    with gpu.matrix.push_pop():
+        gpu.matrix.translate((box[0], box[3], 0))
+        gpu.matrix.scale((scale_x, -scale_y, 1))
+        draw_batch(path, s.path_color, width)
+        for batch, color, fixed_width in batches:
+            draw_batch(batch, color, width if fixed_width is None else fixed_width)
+    # Reuse small pixel-space shapes so zoom never rebuilds handle buffers.
+    for kind, point, color in markers:
+        x, y = screen_point(point, box, s)
+        with gpu.matrix.push_pop():
+            gpu.matrix.translate((x, y, 0))
+            draw_batch(marker_batch(kind), color, 1.5)
+    with gpu.matrix.push_pop():
+        gpu.matrix.translate((box[0], box[3], 0))
+        gpu.matrix.scale((scale_x, -scale_y, 1))
+        for batch, color, fixed_width in auxiliary:
+            draw_batch(batch, color, width)
+    blf.size(0, 12)
+    for name, point, color in labels:
+        x, y = screen_point(point, box, s)
+        if -100 < x < viewport_size[0] and 0 < y < viewport_size[1]:
+            blf.position(0, x + 5, y + 6, 0)
+            blf.color(0, *color, 1)
+            blf.draw(0, name)
 
 
 def draw():
@@ -218,34 +302,13 @@ def draw():
     box = rect(context.scene, obj, context.region, context.region_data)
     if not box:
         return
-    key = (obj.as_pointer(), tuple(round(v, 4) for v in box), s.width, s.height, s.ratio_x, s.ratio_y,
-           s.show_path, s.path_type, s.corner_paths, s.line_width, tuple(s.path_color), s.show_axis,
-           s.show_horizon, s.frame_index, tuple(v for row in obj.matrix_world for v in row),
-           tuple(camera.projection(obj).values()), tuple(frame_key(f) for f in s.frames))
     blend, depth = gpu.state.blend_get(), gpu.state.depth_test_get()
     try:
         if _shader is None:
             _shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-        if key not in _cache:
-            _cache[key] = make_batches(context.scene, obj, box)
-            if len(_cache) > 4:
-                _cache.popitem(last=False)
-        _cache.move_to_end(key)
-        batches, labels = _cache[key]
         gpu.state.blend_set('ALPHA')
         gpu.state.depth_test_set('NONE')
-        _shader.bind()
-        _shader.uniform_float('viewportSize', (context.region.width, context.region.height))
-        for batch, color, width in batches:
-            _shader.uniform_float('color', color)
-            _shader.uniform_float('lineWidth', width)
-            batch.draw(_shader)
-        blf.size(0, 12)
-        for name, (x, y), color in labels:
-            if -100 < x < context.region.width and 0 < y < context.region.height:
-                blf.position(0, x + 5, y + 6, 0)
-                blf.color(0, *color, 1)
-                blf.draw(0, name)
+        draw_guides(context.scene, obj, box, (context.region.width, context.region.height))
         _last_error = None
     except (RuntimeError, ReferenceError, ValueError) as error:
         # Report once, never repeat exceptions at redraw frequency.
@@ -270,7 +333,8 @@ def unregister():
     if _handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handler, 'WINDOW')
         _handler = None
-    _cache.clear()
+    for cache in (_frame_cache, _path_cache, _auxiliary_cache, _markers):
+        cache.clear()
     _view_states.clear()
     for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
         if after_undo in handlers:

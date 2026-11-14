@@ -275,16 +275,36 @@ def reset_paper(scene, obj):
     apply(scene, obj)
 
 
-def auxiliary(scene, obj):
+def horizon_normal(obj):
+    """Horizontal-plane covector in Blender's scale-normalized camera basis.
+
+    A quaternion would discard the shear inherited from a scaled parent.
+    Dotting world up with each normalized basis column preserves that shear.
+    Translation does not affect a vanishing line.
+    """
+    matrix = obj.matrix_world.to_3x3().normalized()
+    determinant = matrix.determinant()
+    if not math.isfinite(determinant) or abs(determinant) < 1e-12:
+        return None
+    return tuple(matrix[2])
+
+
+def auxiliary(scene, obj, *, include_axis=True, include_horizon=True):
     s = obj.cf_camera
+    if not (include_axis or include_horizon):
+        return None, None
     l, r, b, t = bounds(scene, obj)
-    axis = (-l / (r - l) * s.width, t / (t - b) * s.height)
+    axis = (-l / (r - l) * s.width, t / (t - b) * s.height) if include_axis else None
     horizon = None
-    if obj.data.type == 'PERSP':
-        # World vertical in camera coordinates: dot(up, ray) == 0 at infinity.
-        from mathutils import Vector
-        up = obj.matrix_world.to_quaternion().inverted() @ Vector((0, 0, 1))
-        aa, bb, cc = up.x * (r - l) / s.width, -up.y * (t - b) / s.height, up.x * l + up.y * t - up.z
+    up = horizon_normal(obj) if include_horizon and obj.data.type == 'PERSP' else None
+    if up is not None:
+        # dot(world_up, camera_basis @ ray) == 0 at infinity.
+        nx, ny, nz = up
+        aa, bb, cc = nx * (r - l) / s.width, -ny * (t - b) / s.height, nx * l + ny * t - nz
+        norm = math.hypot(aa, bb)
+        if norm < 1e-15:
+            return axis, None
+        aa, bb, cc = aa / norm, bb / norm, cc / norm
         hits = []
         if abs(bb) > 1e-10:
             hits += [(x, -(aa * x + cc) / bb) for x in (0, s.width)]
@@ -304,13 +324,15 @@ def export_auxiliary(scene, obj):
     s = obj.cf_camera
     if not (s.export_axis or s.export_horizon):
         return None, None, []
-    axis, horizon = auxiliary(scene, obj)
+    axis, horizon = auxiliary(scene, obj, include_axis=s.export_axis, include_horizon=s.export_horizon)
     omitted = []
     if s.export_axis and not (0 <= axis[0] <= s.width and 0 <= axis[1] <= s.height):
         omitted.append('光軸: 用紙外のため出力なし')
     if s.export_horizon:
         if obj.data.type != 'PERSP':
             omitted.append('アイレベル: 正投影では出力なし')
+        elif horizon_normal(obj) is None:
+            omitted.append('アイレベル: カメラ変換が退化しているため出力なし')
         elif horizon is None:
             omitted.append('アイレベル: 用紙内にないため出力なし')
     return axis, horizon, omitted
