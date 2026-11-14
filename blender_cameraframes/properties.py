@@ -11,6 +11,16 @@ def redraw(self, context):
                 area.tag_redraw()
 
 
+def get_view_scale(self):
+    from . import overlay
+    return overlay.display_scale(bpy.context)
+
+
+def set_view_scale(self, value):
+    from . import overlay
+    overlay.set_display_scale(bpy.context, value)
+
+
 class CFFrame(bpy.types.PropertyGroup):
     name: StringProperty(name='名前', default='FRAME')
     x: FloatProperty(name='X', default=0, min=-1000000, max=1000000, update=redraw)
@@ -77,9 +87,15 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Object.cf_camera = PointerProperty(type=CFCamera)
     bpy.types.Scene.cf_scene = PointerProperty(type=CFScene)
+    # A UI proxy for the current RegionView3D; no duplicate saved zoom state.
+    bpy.types.WindowManager.cf_view_scale = FloatProperty(
+        name='表示倍率 %', min=0.01, max=100000, soft_min=5, soft_max=200, precision=1, step=100,
+        description='用紙の表示倍率。100%は用紙幅と表示幅が同じピクセル数。カメラの構図や出力サイズは変更しません',
+        get=get_view_scale, set=set_view_scale, options={'SKIP_SAVE'})
 
 
 def unregister():
+    del bpy.types.WindowManager.cf_view_scale
     del bpy.types.Scene.cf_scene
     del bpy.types.Object.cf_camera
     for cls in reversed(CLASSES):

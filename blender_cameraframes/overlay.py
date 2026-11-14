@@ -15,6 +15,70 @@ _auxiliary_cache = OrderedDict()
 _markers = {}
 _last_error = None
 _view_states = OrderedDict()
+_editing_areas = set()
+
+
+def frame_tool_active(context):
+    tool = context.workspace.tools.from_space_view3d_mode(context.mode, create=False)
+    return bool(tool and tool.idname == 'cf.edit_guides')
+
+
+def begin_frame_edit(context):
+    key = (context.window.as_pointer(), context.area.as_pointer())
+    _editing_areas.add(key)
+    context.area.tag_redraw()
+    return key
+
+
+def end_frame_edit(key):
+    _editing_areas.discard(key)
+
+
+def editing_handles(context):
+    if context.space_data.region_quadviews:
+        return False
+    key = (context.window.as_pointer(), context.area.as_pointer())
+    return key in _editing_areas or frame_tool_active(context)
+
+
+def view_target(context, *, camera_view=True):
+    """Resolve the current viewport, including calls from its sidebar."""
+    if not context.area or context.area.type != 'VIEW_3D':
+        return None
+    space = context.space_data
+    obj = camera.active(context.scene)
+    if (not obj or not camera.synced(context.scene, obj) or space.region_quadviews or
+            view_camera(space, context.scene) != obj):
+        return None
+    rv = space.region_3d
+    if camera_view and rv.view_perspective != 'CAMERA':
+        return None
+    region = next((r for r in context.area.regions if r.type == 'WINDOW'), None)
+    return (obj, region, rv) if region else None
+
+
+def display_scale(context):
+    target = view_target(context)
+    if target is None:
+        return 100.0
+    obj, region, rv = target
+    factor = (sqrt(2) + rv.view_camera_zoom / 50) ** 2 / 4
+    return 100 * fitted_width(region, view_metadata(obj.cf_camera)) * factor / obj.cf_camera.width
+
+
+def set_display_scale(context, value):
+    target = view_target(context)
+    if target is None:
+        return
+    obj, region, rv = target
+    old_factor = (sqrt(2) + rv.view_camera_zoom / 50) ** 2 / 4
+    factor = max(0.0001, value / 100) * obj.cf_camera.width / fitted_width(region, view_metadata(obj.cf_camera))
+    prop = rv.bl_rna.properties['view_camera_zoom']
+    rv.view_camera_zoom = max(prop.hard_min, min(prop.hard_max, (sqrt(4 * factor) - sqrt(2)) * 50))
+    new_factor = (sqrt(2) + rv.view_camera_zoom / 50) ** 2 / 4
+    # Keep the paper centre in place, including when the view was panned.
+    rv.view_camera_offset = tuple(v * old_factor / new_factor for v in rv.view_camera_offset)
+    context.area.tag_redraw()
 
 
 def view_metadata(settings):
@@ -256,7 +320,7 @@ def draw_batch(batch, color, width):
         batch.draw(_shader)
 
 
-def draw_guides(scene, obj, box, viewport_size):
+def draw_guides(scene, obj, box, viewport_size, *, editing=False):
     import gpu
     s = obj.cf_camera
     path, batches, auxiliary, labels, markers = batches_for(scene, obj)
@@ -269,9 +333,11 @@ def draw_guides(scene, obj, box, viewport_size):
         gpu.matrix.scale((scale_x, -scale_y, 1))
         draw_batch(path, s.path_color, width)
         for batch, color, fixed_width in batches:
-            draw_batch(batch, color, width if fixed_width is None else fixed_width)
+            # Fixed-width batches are the edit-only Bezier handle connectors.
+            if editing or fixed_width is None:
+                draw_batch(batch, color, width if fixed_width is None else fixed_width)
     # Reuse small pixel-space shapes so zoom never rebuilds handle buffers.
-    for kind, point, color in markers:
+    for kind, point, color in markers if editing else ():
         x, y = screen_point(point, box, s)
         with gpu.matrix.push_pop():
             gpu.matrix.translate((x, y, 0))
@@ -308,7 +374,7 @@ def draw():
             _shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
         gpu.state.blend_set('ALPHA')
         gpu.state.depth_test_set('NONE')
-        draw_guides(context.scene, obj, box, (context.region.width, context.region.height))
+        draw_guides(context.scene, obj, box, (context.region.width, context.region.height), editing=editing_handles(context))
         _last_error = None
     except (RuntimeError, ReferenceError, ValueError) as error:
         # Report once, never repeat exceptions at redraw frequency.
@@ -336,6 +402,7 @@ def unregister():
     for cache in (_frame_cache, _path_cache, _auxiliary_cache, _markers):
         cache.clear()
     _view_states.clear()
+    _editing_areas.clear()
     for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
         if after_undo in handlers:
             handlers.remove(after_undo)

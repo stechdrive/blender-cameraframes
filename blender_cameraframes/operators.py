@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
-from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 from . import camera, geometry, overlay
 
@@ -197,15 +197,28 @@ class CF_OT_fit(CameraOperator, bpy.types.Operator):
     bl_description = 'ビューポート表示だけを合わせます。用紙・構図は変更しません'
 
     def execute(self, context):
-        if not context.area or context.area.type != 'VIEW_3D':
+        target = overlay.view_target(context, camera_view=False)
+        if target is None:
             return {'CANCELLED'}
-        space = context.space_data
-        space.region_3d.view_perspective = 'CAMERA'
-        space.region_3d.view_camera_zoom = 0
-        space.region_3d.view_camera_offset = (0, 0)
-        region = next(r for r in context.area.regions if r.type == 'WINDOW')
+        _, region, rv = target
+        rv.view_perspective = 'CAMERA'
+        rv.view_camera_zoom = 0
+        rv.view_camera_offset = (0, 0)
         with context.temp_override(region=region):
             bpy.ops.view3d.view_center_camera()
+        return {'FINISHED'}
+
+
+class CF_OT_zoom(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.zoom_view'
+    bl_label = '用紙の表示倍率を調整'
+    bl_description = 'カメラの構図を変えずに用紙の画面表示を拡大・縮小します'
+    factor: FloatProperty(default=1.2, min=0.1, max=10)
+
+    def execute(self, context):
+        if overlay.view_target(context) is None:
+            return {'CANCELLED'}
+        overlay.set_display_scale(context, overlay.display_scale(context) * self.factor)
         return {'FINISHED'}
 
 
@@ -314,7 +327,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
 
 
 CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_unregister, CF_OT_duplicate_camera,
-           CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_frame, CF_OT_export)
+           CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export)
 
 
 def register():

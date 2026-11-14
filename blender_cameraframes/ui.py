@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
-from . import camera, geometry
+from . import camera, geometry, overlay
 
 
 class CF_UL_frames(bpy.types.UIList):
@@ -53,6 +53,24 @@ class CameraPanel:
         return camera.active(context.scene) is not None
 
 
+class CF_PT_view(CameraPanel, bpy.types.Panel):
+    bl_label = 'ビュー操作'
+    bl_idname = 'CF_PT_view'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.space_data, 'lock_camera', text='カメラをビューに')
+        col = layout.column()
+        col.enabled = overlay.view_target(context, camera_view=False) is not None
+        col.operator('cf.fit_view', icon='VIEW_CAMERA')
+        row = col.row(align=True)
+        row.enabled = overlay.view_target(context) is not None
+        row.operator('cf.zoom_view', text='', icon='REMOVE').factor = 1 / 1.2
+        row.prop(context.window_manager, 'cf_view_scale')
+        row.operator('cf.zoom_view', text='', icon='ADD').factor = 1.2
+        layout.label(text='表示倍率は構図を変えません')
+
+
 class CF_PT_paper(CameraPanel, bpy.types.Panel):
     bl_label = '用紙と構図'
     bl_idname = 'CF_PT_paper'
@@ -69,7 +87,6 @@ class CF_PT_paper(CameraPanel, bpy.types.Panel):
         row.operator('cf.paper_size', text='数値で変更')
         row.operator('cf.drag_paper', text='ドラッグ')
         layout.operator('cf.reset_paper')
-        layout.operator('cf.fit_view', icon='VIEW_CAMERA')
 
 
 class CF_PT_frames(CameraPanel, bpy.types.Panel):
@@ -88,7 +105,9 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
         row.operator('cf.frame', text='選択解除').action = 'DESELECT'
         if not s.frames:
             return
-        layout.operator('cf.drag_frame', text='ビューで選択・ドラッグ', icon='RESTRICT_SELECT_OFF').mode = 'PICK'
+        editing = overlay.frame_tool_active(context)
+        layout.operator('cf.edit_tool', text='FRAME編集を終了' if editing else 'FRAMEを編集',
+                        icon='RESTRICT_SELECT_OFF', depress=editing)
         row = layout.row(align=True)
         for mode, label in (('MOVE', '移動'), ('SCALE', '拡縮'), ('ROTATE', '回転'), ('PIVOT', '基点')):
             row.operator('cf.drag_frame', text=label).mode = mode
@@ -156,7 +175,7 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
         layout.operator('cf.export_psd', icon='EXPORT')
 
 
-CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_paper, CF_PT_frames, CF_PT_path, CF_PT_export)
+CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_path, CF_PT_export)
 
 
 def register():

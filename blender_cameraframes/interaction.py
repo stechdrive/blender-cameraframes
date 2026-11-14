@@ -39,6 +39,9 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         self.scene = context.scene
         self.original = camera.dump(self.obj.cf_camera)
         self.box = overlay.rect(context.scene, self.obj, self.region, self.rv)
+        if not self.box or self.box[2] <= self.box[0] or self.box[3] <= self.box[1]:
+            return {'CANCELLED'}
+        self._edit_token = overlay.begin_frame_edit(context)
         self.started = False
         context.area.header_text_set('Camera Frames: ドラッグ / G 移動 / S 拡縮 / R 回転 / A 基点 / Shift 微調整・複数選択 / Esc 取消')
         if event.type == 'LEFTMOUSE' and context.region.type == 'WINDOW':
@@ -147,6 +150,8 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                     f.handle_in, f.handle_out = geometry.rotate(saved['handle_in'], turn), geometry.rotate(saved['handle_out'], turn)
 
     def finish(self, context):
+        overlay.end_frame_edit(getattr(self, '_edit_token', None))
+        self._edit_token = None
         if context.area:
             context.area.header_text_set(None)
             context.area.tag_redraw()
@@ -254,7 +259,23 @@ class CF_WST_edit(bpy.types.WorkSpaceTool):
     )
 
 
-CLASSES = (CF_OT_drag, CF_OT_paper_drag)
+class CF_OT_edit_tool(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.edit_tool'
+    bl_label = 'FRAME編集を切り替え'
+    bl_description = 'FRAME編集ツールを開始・終了します。編集時だけ操作ハンドルを表示します'
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and overlay.view_target(context) is not None
+
+    def execute(self, context):
+        name = 'builtin.select_box' if overlay.frame_tool_active(context) else 'cf.edit_guides'
+        bpy.ops.wm.tool_set_by_id(name=name)
+        context.area.tag_redraw()
+        return {'FINISHED'}
+
+
+CLASSES = (CF_OT_drag, CF_OT_paper_drag, CF_OT_edit_tool)
 
 
 def register():
