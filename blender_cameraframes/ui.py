@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
-from . import camera, geometry, overlay
+from . import camera, overlay
 
 
 class CF_UL_frames(bpy.types.UIList):
@@ -123,11 +123,17 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
         row.prop(s, 'ratio_y')
         if camera.synced(context.scene, obj):
             if obj.data.type == 'PERSP':
-                focal, angle = geometry.frame_lens(f, s.ratio_x / s.ratio_y, camera.bounds(context.scene, obj), s.width, s.height)
-                layout.label(text=f'幅基準 35mm換算 {focal:.2f} mm')
-                layout.label(text=f'基準画角 {angle:.2f}°')
-                layout.prop(s, 'target_focal')
-                layout.operator('cf.set_frame_focal')
+                col = layout.column(align=True)
+                error = None
+                try:
+                    camera.check_frame_focal(context.scene, obj)
+                except ValueError as failure:
+                    error = str(failure)
+                col.enabled = error is None
+                col.prop(s, 'frame_focal')
+                col.prop(s, 'frame_angle')
+                if error:
+                    layout.label(text=error, icon='INFO')
             elif obj.data.type == 'ORTHO':
                 l, r, b, t = camera.bounds(context.scene, obj)
                 layout.label(text=f'正投影 幅 {f.width / s.width * (r - l):.4g}')

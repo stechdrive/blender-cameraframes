@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
+from math import atan, degrees, radians, tan
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty,
                        FloatVectorProperty, IntProperty, PointerProperty, StringProperty)
 
@@ -19,6 +20,33 @@ def get_view_scale(self):
 def set_view_scale(self, value):
     from . import overlay
     overlay.set_display_scale(bpy.context, value)
+
+
+def lens_values(self):
+    from . import camera, geometry
+    obj, scene = self.id_data, bpy.context.scene
+    if not scene or not self.frames or obj.type != 'CAMERA' or obj.data.type != 'PERSP' or not camera.synced(scene, obj):
+        return 0.0, 0.0
+    frame = self.frames[min(self.frame_index, len(self.frames) - 1)]
+    return geometry.frame_lens(frame, self.ratio_x / self.ratio_y, camera.bounds(scene, obj), self.width, self.height)
+
+
+def get_frame_focal(self):
+    return lens_values(self)[0]
+
+
+def set_frame_focal(self, value):
+    from . import camera
+    camera.set_frame_focal(bpy.context.scene, self.id_data, value, clamp=True)
+
+
+def get_frame_angle(self):
+    return lens_values(self)[1]
+
+
+def set_frame_angle(self, value):
+    from . import camera
+    camera.set_frame_focal(bpy.context.scene, self.id_data, 18 / tan(radians(value) / 2), clamp=True)
 
 
 class CFFrame(bpy.types.PropertyGroup):
@@ -53,9 +81,16 @@ class CFCamera(bpy.types.PropertyGroup):
     baseline: StringProperty()
     frames: CollectionProperty(type=CFFrame)
     frame_index: IntProperty(default=0, min=0, update=redraw)
-    target_focal: FloatProperty(name='目標35mm換算 mm', default=50, min=0.1, max=100000,
-                               soft_min=10, soft_max=200, precision=2, options=set(),
-                               description='アクティブFRAMEの横幅を基準にした目標値。「カメラに適用」で焦点距離を変更します')
+    # Computed UI properties belong to the Object ID so native numeric editing
+    # is undoable. They never store a second lens value or participate in copies.
+    frame_focal: FloatProperty(name='幅基準35mm換算 mm', default=50, min=0.000001, max=1e12,
+                              step=10, precision=2, options={'SKIP_SAVE'},
+                              get=get_frame_focal, set=set_frame_focal, update=redraw,
+                              description='現在のアクティブFRAMEの換算焦点距離。ドラッグや数値入力でカメラの焦点距離を直接変更します')
+    frame_angle: FloatProperty(name='基準画角 °', default=degrees(2 * atan(18 / 50)), min=0.000001, max=179.9999,
+                              step=10, precision=2, options={'SKIP_SAVE'},
+                              get=get_frame_angle, set=set_frame_angle, update=redraw,
+                              description='現在のアクティブFRAMEの幅基準画角。ドラッグや数値入力でカメラの焦点距離を直接変更します')
     show_mask: BoolProperty(name='FRAME外をマスク', default=False, update=redraw)
     mask_source: EnumProperty(name='対象', items=[
         ('ACTIVE', 'アクティブFRAME', '一覧で編集中の1枚を使用します'),

@@ -13,7 +13,7 @@ def dump(group):
     out = {}
     for prop in group.bl_rna.properties:
         name = prop.identifier
-        if name == 'rna_type':
+        if name == 'rna_type' or prop.is_skip_save:
             continue
         value = getattr(group, name)
         if prop.type == 'COLLECTION':
@@ -26,7 +26,7 @@ def dump(group):
 def load(group, values):
     for name, value in values.items():
         prop = group.bl_rna.properties.get(name)
-        if not prop or name == 'rna_type':
+        if not prop or name == 'rna_type' or prop.is_skip_save:
             continue
         if prop.type == 'COLLECTION':
             items = getattr(group, name)
@@ -92,9 +92,7 @@ def bounds(scene, obj):
     return min(p.x for p in points), max(p.x for p in points), min(p.y for p in points), max(p.y for p in points)
 
 
-def set_frame_focal(scene, obj, target):
-    """One explicit, undoable lens edit; guide/paper geometry stays fixed."""
-    from . import geometry
+def check_frame_focal(scene, obj):
     check_camera(obj)
     if obj.data.type != 'PERSP':
         raise ValueError('35mm換算の指定は透視投影のカメラで使用してください')
@@ -107,6 +105,13 @@ def set_frame_focal(scene, obj, target):
     s = obj.cf_camera
     if not s.frames:
         raise ValueError('撮影FRAMEを追加してください')
+
+
+def set_frame_focal(scene, obj, target, *, clamp=False):
+    """Change the actual lens through the FRAME's width-based equivalent."""
+    from . import geometry
+    check_frame_focal(scene, obj)
+    s = obj.cf_camera
     if not math.isfinite(target) or target <= 0:
         raise ValueError('目標35mm換算値には正の数を指定してください')
     frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
@@ -116,8 +121,13 @@ def set_frame_focal(scene, obj, target):
     old = obj.data.lens
     value = old * target / current
     prop = obj.data.bl_rna.properties['lens']
+    if clamp and math.isfinite(value):
+        value = max(prop.hard_min, min(prop.hard_max, value))
+        target = current * value / old
     if not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max:
         raise ValueError('目標値はBlenderの焦点距離の対応範囲外です')
+    if value == old:
+        return old
     try:
         obj.data.lens = value
         actual = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height)[0]
