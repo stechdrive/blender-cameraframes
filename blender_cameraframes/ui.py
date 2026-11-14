@@ -26,19 +26,27 @@ class CF_PT_main(bpy.types.Panel):
         for i, entry in enumerate(scene.cf_scene.cameras):
             row = layout.row(align=True)
             obj = entry.camera
-            row.operator('cf.activate_camera', text=obj.name if obj else '(削除済み)', icon='CAMERA_DATA',
+            row.operator('cf.activate_camera', text=obj.name if obj else '(削除済み)', translate=False, icon='CAMERA_DATA',
                          depress=i == scene.cf_scene.active_index).index = i
             row.operator('cf.unregister_camera', text='', icon='X').index = i
         obj = camera.active(scene)
         if not obj:
+            selected = context.active_object
+            if ((selected and selected.type == 'CAMERA' and camera.registered_index(scene, selected) < 0)
+                    or (scene.camera and camera.registered_index(scene, scene.camera) < 0)):
+                layout.label(text='未登録のカメラです', icon='INFO')
+                layout.label(text='「選択カメラを登録」で追加できます')
             return
         s = obj.cf_camera
         layout.operator('cf.duplicate_camera', icon='DUPLICATE')
         if not camera.synced(scene, obj):
             box = layout.box()
             box.alert = True
-            box.label(text='使用カメラ / 出力設定が異なります', icon='ERROR')
-            box.operator('cf.activate_camera', text='保存設定を適用')
+            if scene.camera != obj:
+                box.label(text='使用カメラが切り替わっています', icon='INFO')
+            else:
+                box.label(text='用紙と出力設定が異なります', icon='ERROR')
+                box.operator('cf.sync_output')
         layout.prop(s, 'show_guides')
 
 

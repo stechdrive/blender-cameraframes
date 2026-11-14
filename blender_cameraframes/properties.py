@@ -122,7 +122,7 @@ class CFCameraEntry(bpy.types.PropertyGroup):
 
 class CFScene(bpy.types.PropertyGroup):
     cameras: CollectionProperty(type=CFCameraEntry)
-    active_index: IntProperty(default=0, min=0)
+    active_index: IntProperty(default=-1, min=-1)
 
 
 CLASSES = (CFFrame, CFCamera, CFCameraEntry, CFScene)

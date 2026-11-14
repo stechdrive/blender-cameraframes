@@ -1,12 +1,157 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Explicit transactions only: no dependency-graph, timer or render callbacks."""
+"""Camera settings and event-driven selection; no polling or render callbacks."""
 import json
 import math
 import uuid
 import bpy
+from bpy.app.handlers import persistent
 
 PROJECTION = ('type', 'lens', 'sensor_fit', 'sensor_width', 'sensor_height', 'shift_x', 'shift_y', 'ortho_scale')
 RENDER = ('resolution_x', 'resolution_y', 'resolution_percentage', 'pixel_aspect_x', 'pixel_aspect_y')
+
+_selection_owner = object()
+_observed_windows = {}
+_observed_cameras = {}
+_synchronizing = False
+
+
+def registered_index(scene, obj):
+    if obj and obj.type == 'CAMERA' and scene.objects.get(obj.name) == obj:
+        return next((i for i, entry in enumerate(scene.cf_scene.cameras) if entry.camera == obj), -1)
+    return -1
+
+
+def select_object(view_layer, obj):
+    """Select an available camera without changing visibility or collection exclusions."""
+    if not obj or view_layer.objects.get(obj.name) != obj or obj.hide_select or obj.hide_get(view_layer=view_layer):
+        return
+    if view_layer.objects.active == obj and obj.select_get(view_layer=view_layer):
+        return
+    for selected in tuple(view_layer.objects):
+        if selected.select_get(view_layer=view_layer):
+            selected.select_set(False, view_layer=view_layer)
+    obj.select_set(True, view_layer=view_layer)
+    view_layer.objects.active = obj
+
+
+def _pointer(value):
+    return value.as_pointer() if value else 0
+
+
+def _window_state(window):
+    return (_pointer(window.scene), _pointer(window.view_layer), _pointer(window.view_layer.objects.active))
+
+
+def remember_selection():
+    _observed_windows.clear()
+    _observed_cameras.clear()
+    for window in bpy.context.window_manager.windows:
+        _observed_windows[window.as_pointer()] = _window_state(window)
+        _observed_cameras[window.scene.as_pointer()] = _pointer(window.scene.camera)
+
+
+def activate(context, obj):
+    """One camera identity in the sidebar, Outliner and scene camera."""
+    context.scene.cf_scene.active_index = registered_index(context.scene, obj)
+    if not synced(context.scene, obj):
+        apply(context.scene, obj)
+    select_object(context.view_layer, obj)
+    remember_selection()
+
+
+def _redraw():
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type in {'VIEW_3D', 'OUTLINER', 'PROPERTIES'}:
+                area.tag_redraw()
+
+
+def _follow(scene, obj, view_layer, *, from_selection):
+    index = registered_index(scene, obj)
+    changed = scene.cf_scene.active_index != index or scene.camera != obj
+    scene.cf_scene.active_index = index
+    if index >= 0 and changed and not synced(scene, obj):
+        apply(scene, obj)
+    if not from_selection:
+        select_object(view_layer, obj)
+
+
+def selection_changed(source='selection'):
+    global _synchronizing
+    if _synchronizing:
+        return
+    _synchronizing = True
+    try:
+        windows = tuple(bpy.context.window_manager.windows)
+        # Resolve the event's current window first when windows share a scene.
+        windows = sorted(windows, key=lambda window: window != bpy.context.window)
+        changes = [(window,
+                    _observed_cameras.get(window.scene.as_pointer()) != _pointer(window.scene.camera),
+                    _observed_windows.get(window.as_pointer()) != _window_state(window)) for window in windows]
+        handled = set()
+        for window, scene_changed, object_changed in changes:
+            scene, view_layer = window.scene, window.view_layer
+            if (not object_changed and not scene_changed) or scene.as_pointer() in handled:
+                continue
+            obj = view_layer.objects.active
+            if scene_changed and (source == 'camera' or not object_changed):
+                _follow(scene, scene.camera, view_layer, from_selection=False)
+            elif obj and obj.type == 'CAMERA':
+                _follow(scene, obj, view_layer, from_selection=True)
+            elif active(scene) is None:
+                # Leaving an unregistered camera for a mesh restores the current scene camera's panel.
+                _follow(scene, scene.camera, view_layer, from_selection=True)
+            handled.add(scene.as_pointer())
+        remember_selection()
+        if handled:
+            _redraw()
+    finally:
+        _synchronizing = False
+
+
+@persistent
+def selection_after_undo(_unused):
+    selection_changed()
+
+
+@persistent
+def subscribe_selection(_unused=None):
+    bpy.msgbus.clear_by_owner(_selection_owner)
+    for key, source in (((bpy.types.LayerObjects, 'active'), 'selection'),
+                        ((bpy.types.Scene, 'camera'), 'camera'),
+                        ((bpy.types.Window, 'scene'), 'selection'),
+                        ((bpy.types.Window, 'view_layer'), 'selection')):
+        bpy.msgbus.subscribe_rna(key=key, owner=_selection_owner, args=(source,),
+                                notify=selection_changed, options={'PERSISTENT'})
+    # Loading/enabling preserves the saved render settings. Only a later switch applies another camera's settings.
+    for window in bpy.context.window_manager.windows:
+        scene = window.scene
+        selected = window.view_layer.objects.active
+        if selected and selected.type == 'CAMERA' and registered_index(scene, selected) < 0:
+            scene.cf_scene.active_index = -1
+        else:
+            scene.cf_scene.active_index = registered_index(scene, scene.camera)
+    remember_selection()
+
+
+def register():
+    if bpy.app.background:
+        return
+    subscribe_selection()
+    bpy.app.handlers.load_post.append(subscribe_selection)
+    bpy.app.handlers.undo_post.append(selection_after_undo)
+    bpy.app.handlers.redo_post.append(selection_after_undo)
+
+
+def unregister():
+    bpy.msgbus.clear_by_owner(_selection_owner)
+    for handlers, callback in ((bpy.app.handlers.load_post, subscribe_selection),
+                               (bpy.app.handlers.undo_post, selection_after_undo),
+                               (bpy.app.handlers.redo_post, selection_after_undo)):
+        if callback in handlers:
+            handlers.remove(callback)
+    _observed_windows.clear()
+    _observed_cameras.clear()
 
 
 def dump(group):
@@ -64,7 +209,7 @@ def check_resize(scene, obj):
     if obj.data.animation_data:
         raise ValueError('Cameraデータにアニメーションがあります。用紙変更には静的な投影設定が必要です')
     if not synced(scene, obj):
-        raise ValueError('シーンの出力設定が異なります。「保存設定を適用」を先に実行してください')
+        raise ValueError('用紙と出力設定が異なります。「用紙サイズを出力に反映」を先に実行してください')
 
 
 def synced(scene, obj):
@@ -101,7 +246,7 @@ def check_frame_focal(scene, obj):
     if obj.data.animation_data:
         raise ValueError('Cameraデータにアニメーションまたはドライバーがあります。静的なカメラで適用してください')
     if not synced(scene, obj):
-        raise ValueError('シーンの出力設定が異なります。「保存設定を適用」を先に実行してください')
+        raise ValueError('用紙と出力設定が異なります。「用紙サイズを出力に反映」を先に実行してください')
     s = obj.cf_camera
     if not s.frames:
         raise ValueError('撮影FRAMEを追加してください')

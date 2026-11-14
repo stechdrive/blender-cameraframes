@@ -17,9 +17,14 @@ class CF_OT_register(bpy.types.Operator):
     bl_description = '選択したカメラを登録します。共有Cameraデータは独立させます'
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'CAMERA'
+
     def execute(self, context):
         try:
-            camera.register_camera(context.scene, context.active_object)
+            obj = camera.register_camera(context.scene, context.active_object)
+            camera.activate(context, obj)
         except ValueError as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
@@ -46,10 +51,25 @@ class CF_OT_activate(CameraOperator, bpy.types.Operator):
         if not obj or obj.type != 'CAMERA' or context.scene.objects.get(obj.name) != obj:
             self.report({'WARNING'}, 'このカメラはシーン内にありません。登録解除してください')
             return {'CANCELLED'}
-        state.active_index = index
-        camera.apply(context.scene, obj)
+        camera.activate(context, obj)
         if context.area:
             context.area.tag_redraw()
+        return {'FINISHED'}
+
+
+class CF_OT_sync_output(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.sync_output'
+    bl_label = '用紙サイズを出力に反映'
+    bl_description = 'このカメラの用紙寸法・出力倍率・ピクセル比率をBlenderの出力設定へ反映します'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = camera.active(context.scene)
+        return obj is not None and context.scene.camera == obj
+
+    def execute(self, context):
+        camera.apply(context.scene, camera.active(context.scene))
         return {'FINISHED'}
 
 
@@ -65,11 +85,10 @@ class CF_OT_unregister(bpy.types.Operator):
         index = self.index if self.index >= 0 else state.active_index
         if not 0 <= index < len(state.cameras):
             return {'CANCELLED'}
-        state.cameras.remove(index)
-        state.active_index = min(state.active_index, max(0, len(state.cameras) - 1))
         obj = camera.active(context.scene)
-        if obj:
-            camera.apply(context.scene, obj)
+        state.cameras.remove(index)
+        state.active_index = camera.registered_index(context.scene, obj)
+        camera.remember_selection()
         return {'FINISHED'}
 
 
@@ -82,6 +101,8 @@ class CF_OT_duplicate_camera(CameraOperator, bpy.types.Operator):
     def execute(self, context):
         try:
             obj = camera.duplicate(context.scene, camera.active(context.scene))
+            context.view_layer.update()
+            camera.activate(context, obj)
         except (ValueError, RuntimeError) as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
@@ -295,7 +316,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
             self.report({'ERROR'}, '透視または正投影のカメラを使用してください')
             return {'CANCELLED'}
         if not camera.synced(context.scene, obj):
-            self.report({'ERROR'}, 'シーンの出力設定が異なります。「保存設定を適用」を実行してください')
+            self.report({'ERROR'}, '用紙と出力設定が異なります。「用紙サイズを出力に反映」を実行してください')
             return {'CANCELLED'}
         if context.scene.render.use_border and context.scene.render.use_crop_to_border:
             self.report({'ERROR'}, 'PSD出力時はレンダー領域の「領域にクロップ」を解除してください')
@@ -329,7 +350,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
-CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_unregister, CF_OT_duplicate_camera,
+CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_sync_output, CF_OT_unregister, CF_OT_duplicate_camera,
            CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export)
 
 
