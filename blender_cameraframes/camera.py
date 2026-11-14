@@ -215,15 +215,22 @@ def check_resize(scene, obj):
 def synced(scene, obj):
     s, r = obj.cf_camera, scene.render
     return (scene.camera == obj and r.resolution_x == s.width and r.resolution_y == s.height and
-            r.resolution_percentage == s.percentage and abs(r.pixel_aspect_x - s.aspect_x) < 1e-6 and
+            abs(r.pixel_aspect_x - s.aspect_x) < 1e-6 and
             abs(r.pixel_aspect_y - s.aspect_y) < 1e-6)
 
 
 def apply(scene, obj):
     s, r = obj.cf_camera, scene.render
     scene.camera = obj
-    r.resolution_x, r.resolution_y, r.resolution_percentage = s.width, s.height, s.percentage
+    r.resolution_x, r.resolution_y = s.width, s.height
     r.pixel_aspect_x, r.pixel_aspect_y = s.aspect_x, s.aspect_y
+
+
+def output_size(scene, obj):
+    """Use Blender's scene-wide output scale without a second stored value."""
+    s = obj.cf_camera
+    percentage = scene.render.resolution_percentage
+    return s.width * percentage // 100, s.height * percentage // 100
 
 
 def projection(obj):
@@ -301,7 +308,7 @@ def set_baseline(obj):
     s = obj.cf_camera
     s.origin = (0, 0)
     s.baseline = json.dumps({'projection': projection(obj), 'width': s.width, 'height': s.height,
-                             'percentage': s.percentage, 'aspect_x': s.aspect_x, 'aspect_y': s.aspect_y})
+                             'aspect_x': s.aspect_x, 'aspect_y': s.aspect_y})
 
 
 def register_camera(scene, obj):
@@ -313,14 +320,14 @@ def register_camera(scene, obj):
             apply(scene, obj)
             return obj
     s, r = obj.cf_camera, scene.render
-    if not s.uid and not (4 <= r.resolution_x <= 30000 and 4 <= r.resolution_y <= 30000 and 1 <= r.resolution_percentage <= 100):
-        raise ValueError('用紙は4～30000px、出力倍率は1～100%に対応しています')
+    if not s.uid and not (4 <= r.resolution_x <= 30000 and 4 <= r.resolution_y <= 30000):
+        raise ValueError('用紙は4～30000pxに対応しています')
     if obj.data.users > 1:
         obj.data = obj.data.copy()
     # Native duplicates retain settings, but must receive a fresh identity/baseline.
     copied = bool(s.uid) and any(o != obj and o.type == 'CAMERA' and o.cf_camera.uid == s.uid for o in bpy.data.objects)
     if not s.uid:
-        s.width, s.height, s.percentage = r.resolution_x, r.resolution_y, r.resolution_percentage
+        s.width, s.height = r.resolution_x, r.resolution_y
         s.aspect_x, s.aspect_y = r.pixel_aspect_x, r.pixel_aspect_y
         f = s.frames.add()
         f.name, f.x, f.y = 'FRAME A', s.width / 2, s.height / 2
@@ -440,7 +447,7 @@ def reset_paper(scene, obj):
         base = json.loads(s.baseline)
         if set(base['projection']) != set(PROJECTION):
             raise ValueError()
-        for key in ('width', 'height', 'percentage', 'aspect_x', 'aspect_y'):
+        for key in ('width', 'height', 'aspect_x', 'aspect_y'):
             prop = s.bl_rna.properties[key]
             value = base[key]
             if not isinstance(value, (float, int)) or not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max:
@@ -461,7 +468,7 @@ def reset_paper(scene, obj):
         f.y -= s.origin[1]
     for key, value in base['projection'].items():
         setattr(obj.data, key, value)
-    for key in ('width', 'height', 'percentage', 'aspect_x', 'aspect_y'):
+    for key in ('width', 'height', 'aspect_x', 'aspect_y'):
         setattr(s, key, base[key])
     s.origin = (0, 0)
     apply(scene, obj)

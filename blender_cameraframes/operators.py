@@ -60,7 +60,7 @@ class CF_OT_activate(CameraOperator, bpy.types.Operator):
 class CF_OT_sync_output(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.sync_output'
     bl_label = '用紙サイズを出力に反映'
-    bl_description = 'このカメラの用紙寸法・出力倍率・ピクセル比率をBlenderの出力設定へ反映します'
+    bl_description = 'このカメラの用紙寸法・ピクセル比率をBlenderの出力設定へ反映します'
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -195,8 +195,8 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
 
 class CF_OT_reset(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.reset_paper'
-    bl_label = '登録時の用紙・投影へ戻す'
-    bl_description = '用紙とレンズ・投影を復帰。FRAMEの編集内容とカメラの位置・回転は保持します'
+    bl_label = '用紙・レンズを登録時に戻す'
+    bl_description = '用紙サイズ、焦点距離、シフト、投影方式などを登録時へ戻します。カメラの位置・回転、FRAMEの編集内容、出力倍率は保持します'
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -300,7 +300,7 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
 class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
     bl_idname = 'cf.export_psd'
     bl_label = 'ガイドPSDを書き出す'
-    bl_description = 'FRAME・軌道・補助線・マスクを別レイヤーで保存します。本画はレンダーしません'
+    bl_description = 'FRAME・軌道・補助線・マスクを別レイヤーで保存します'
     filename_ext = '.psd'
     filter_glob: StringProperty(default='*.psd', options={'HIDDEN'})
 
@@ -324,7 +324,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         if abs(s.aspect_x - s.aspect_y) > 1e-6:
             self.report({'ERROR'}, 'PSD出力は正方形ピクセルに対応しています')
             return {'CANCELLED'}
-        width, height = s.width * s.percentage // 100, s.height * s.percentage // 100
+        width, height = camera.output_size(context.scene, obj)
         sx, sy = width / s.width, height / s.height
         axis, horizon, omitted = camera.export_auxiliary(context.scene, obj)
         wm = context.window_manager

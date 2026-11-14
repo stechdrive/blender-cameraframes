@@ -70,7 +70,6 @@ class CFCamera(bpy.types.PropertyGroup):
     uid: StringProperty()
     width: IntProperty(name='用紙幅', min=4, max=30000, default=1920)
     height: IntProperty(name='用紙高さ', min=4, max=30000, default=1080)
-    percentage: IntProperty(default=100, min=1, max=100)
     aspect_x: FloatProperty(default=1, min=1, max=200)
     aspect_y: FloatProperty(default=1, min=1, max=200)
     ppi: FloatProperty(name='PPI', default=150, min=1, max=10000)

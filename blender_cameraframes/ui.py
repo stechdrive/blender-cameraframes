@@ -76,19 +76,16 @@ class CF_PT_view(CameraPanel, bpy.types.Panel):
         row.operator('cf.zoom_view', text='', icon='REMOVE').factor = 1 / 1.2
         row.prop(context.window_manager, 'cf_view_scale')
         row.operator('cf.zoom_view', text='', icon='ADD').factor = 1.2
-        layout.label(text='表示倍率は構図を変えません')
 
 
 class CF_PT_paper(CameraPanel, bpy.types.Panel):
-    bl_label = '用紙と構図'
+    bl_label = '出力（用紙設定）'
     bl_idname = 'CF_PT_paper'
 
     def draw(self, context):
         s = camera.active(context.scene).cf_camera
         layout = self.layout
         layout.label(text=f'用紙 {s.width} × {s.height}px')
-        layout.label(text=f'出力 {s.width * s.percentage // 100} × {s.height * s.percentage // 100}px ({s.percentage}%)')
-        layout.prop(s, 'percentage', text='出力倍率 %')
         layout.prop(s, 'paper_anchor', text='固定基点')
         layout.prop(s, 'aspect_lock')
         row = layout.row(align=True)
@@ -200,7 +197,7 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
             for notice in camera.export_auxiliary(context.scene, obj)[2]:
                 layout.label(text=notice, icon='INFO')
         layout.label(text='FRAME一覧の矢印で出力対象を選択')
-        width, height = s.width * s.percentage // 100, s.height * s.percentage // 100
+        width, height = camera.output_size(context.scene, obj)
         layout.label(text=f'{width * 25.4 / s.ppi:.1f} × {height * 25.4 / s.ppi:.1f} mm')
         layout.operator('cf.export_psd', icon='EXPORT')
 
