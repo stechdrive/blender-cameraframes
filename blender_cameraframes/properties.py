@@ -53,6 +53,17 @@ class CFCamera(bpy.types.PropertyGroup):
     baseline: StringProperty()
     frames: CollectionProperty(type=CFFrame)
     frame_index: IntProperty(default=0, min=0, update=redraw)
+    target_focal: FloatProperty(name='目標35mm換算 mm', default=50, min=0.1, max=100000,
+                               soft_min=10, soft_max=200, precision=2, options=set(),
+                               description='アクティブFRAMEの横幅を基準にした目標値。「カメラに適用」で焦点距離を変更します')
+    show_mask: BoolProperty(name='FRAME外をマスク', default=False, update=redraw)
+    mask_source: EnumProperty(name='対象', items=[
+        ('ACTIVE', 'アクティブFRAME', '一覧で編集中の1枚を使用します'),
+        ('ALL', '全FRAMEの通過範囲', '一覧順の全FRAMEを使用します。枠線の表示・PSD出力のチェックとは独立です')],
+        default='ALL', update=redraw)
+    mask_opacity: FloatProperty(name='不透明度 %', default=80, min=0, max=100, precision=1, update=redraw)
+    export_mask: BoolProperty(name='マスクをPSDへ', default=False,
+                             description='画面のマスク表示とは独立して、同じ対象・不透明度で別レイヤーへ出力します')
     ratio_x: FloatProperty(name='FRAME 横', default=16, min=0.01, max=1000, update=redraw)
     ratio_y: FloatProperty(name='縦', default=9, min=0.01, max=1000, update=redraw)
     path_type: EnumProperty(name='軌道', items=[('LINE', '直線', ''), ('BEZIER', 'ベジェ', '')], default='BEZIER', update=redraw)

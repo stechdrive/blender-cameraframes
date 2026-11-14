@@ -92,6 +92,43 @@ def bounds(scene, obj):
     return min(p.x for p in points), max(p.x for p in points), min(p.y for p in points), max(p.y for p in points)
 
 
+def set_frame_focal(scene, obj, target):
+    """One explicit, undoable lens edit; guide/paper geometry stays fixed."""
+    from . import geometry
+    check_camera(obj)
+    if obj.data.type != 'PERSP':
+        raise ValueError('35mm換算の指定は透視投影のカメラで使用してください')
+    if obj.data.users > 1:
+        raise ValueError('Cameraデータが共有されています。登録解除して再登録すると独立します')
+    if obj.data.animation_data:
+        raise ValueError('Cameraデータにアニメーションまたはドライバーがあります。静的なカメラで適用してください')
+    if not synced(scene, obj):
+        raise ValueError('シーンの出力設定が異なります。「保存設定を適用」を先に実行してください')
+    s = obj.cf_camera
+    if not s.frames:
+        raise ValueError('撮影FRAMEを追加してください')
+    if not math.isfinite(target) or target <= 0:
+        raise ValueError('目標35mm換算値には正の数を指定してください')
+    frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
+    current = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height)[0]
+    if not math.isfinite(current) or current <= 0:
+        raise ValueError('FRAMEの画角を計算できません')
+    old = obj.data.lens
+    value = old * target / current
+    prop = obj.data.bl_rna.properties['lens']
+    if not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max:
+        raise ValueError('目標値はBlenderの焦点距離の対応範囲外です')
+    try:
+        obj.data.lens = value
+        actual = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height)[0]
+        if not math.isfinite(actual) or abs(actual - target) > max(1e-4, target * 1e-5):
+            raise ValueError('目標値に合わせられませんでした。カメラ設定を確認してください')
+    except Exception:
+        obj.data.lens = old
+        raise
+    return obj.data.lens
+
+
 def snapshot(scene, obj):
     return {'settings': dump(obj.cf_camera), 'projection': projection(obj),
             'render': {key: getattr(scene.render, key) for key in RENDER}}

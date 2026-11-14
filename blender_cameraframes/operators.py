@@ -2,7 +2,7 @@
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
-from . import camera, geometry, overlay
+from . import camera, geometry, mask, overlay
 
 
 class CameraOperator:
@@ -276,10 +276,34 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
         return {'FINISHED'}
 
 
+class CF_OT_frame_focal(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.set_frame_focal'
+    bl_label = 'カメラに適用'
+    bl_description = 'アクティブFRAMEが目標35mm換算になるようカメラの焦点距離を変更します。同じカメラの全FRAMEの見え方に影響します'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = camera.active(context.scene)
+        return bool(obj and obj.data.type == 'PERSP' and obj.cf_camera.frames and camera.synced(context.scene, obj))
+
+    def execute(self, context):
+        obj = camera.active(context.scene)
+        try:
+            focal = camera.set_frame_focal(context.scene, obj, obj.cf_camera.target_focal)
+        except (ValueError, RuntimeError) as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+        if context.area:
+            context.area.tag_redraw()
+        self.report({'INFO'}, f'カメラの焦点距離を {focal:.2f} mm に設定しました')
+        return {'FINISHED'}
+
+
 class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
     bl_idname = 'cf.export_psd'
     bl_label = 'ガイドPSDを書き出す'
-    bl_description = 'FRAME・軌道・光軸・アイレベルを透明な別レイヤーで保存します。本画はレンダーしません'
+    bl_description = 'FRAME・軌道・補助線・マスクを別レイヤーで保存します。本画はレンダーしません'
     filename_ext = '.psd'
     filter_glob: StringProperty(default='*.psd', options={'HIDDEN'})
 
@@ -306,16 +330,19 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         width, height = s.width * s.percentage // 100, s.height * s.percentage // 100
         sx, sy = width / s.width, height / s.height
         axis, horizon, omitted = camera.export_auxiliary(context.scene, obj)
-        layers = [(name, color, weight * min(sx, sy), [[(x * sx, y * sy) for x, y in path] for path in paths])
-                  for name, color, weight, paths in geometry.guide_layers(s, axis=axis, horizon=horizon)]
-        if not layers:
-            self.report({'ERROR'}, '用紙内に出力できるガイドがありません' + (' / ' + ' / '.join(omitted) if omitted else ''))
-            return {'CANCELLED'}
         wm = context.window_manager
         wm.progress_begin(0, 100)
         try:
+            layers = [(name, color, weight * min(sx, sy), [[(x * sx, y * sy) for x, y in path] for path in paths])
+                      for name, color, weight, paths in geometry.guide_layers(s, axis=axis, horizon=horizon)]
+            mask_layer = None
+            if s.export_mask and s.frames:
+                triangles = mask.triangles(mask.key_for(s), s.width, s.height)
+                mask_layer = (tuple(tuple((x * sx, y * sy) for x, y in tri) for tri in triangles), s.mask_opacity / 100)
+            if not layers and mask_layer is None:
+                raise ValueError('用紙内に出力できるガイドがありません' + (' / ' + ' / '.join(omitted) if omitted else ''))
             write_psd(bpy.path.ensure_ext(self.filepath, '.psd'), width, height, s.ppi, layers,
-                      lambda fraction: wm.progress_update(fraction * 100))
+                      lambda fraction: wm.progress_update(fraction * 100), mask_layer=mask_layer)
         except (OSError, ValueError, MemoryError) as error:
             self.report({'ERROR'}, 'PSD出力に失敗: ' + str(error))
             return {'CANCELLED'}
@@ -327,7 +354,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
 
 
 CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_unregister, CF_OT_duplicate_camera,
-           CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export)
+           CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_frame_focal, CF_OT_export)
 
 
 def register():

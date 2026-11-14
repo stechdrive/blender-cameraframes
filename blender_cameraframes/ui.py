@@ -126,9 +126,24 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
                 focal, angle = geometry.frame_lens(f, s.ratio_x / s.ratio_y, camera.bounds(context.scene, obj), s.width, s.height)
                 layout.label(text=f'幅基準 35mm換算 {focal:.2f} mm')
                 layout.label(text=f'基準画角 {angle:.2f}°')
+                layout.prop(s, 'target_focal')
+                layout.operator('cf.set_frame_focal')
             elif obj.data.type == 'ORTHO':
                 l, r, b, t = camera.bounds(context.scene, obj)
                 layout.label(text=f'正投影 幅 {f.width / s.width * (r - l):.4g}')
+
+
+class CF_PT_mask(CameraPanel, bpy.types.Panel):
+    bl_label = 'FRAME外マスク'
+    bl_idname = 'CF_PT_mask'
+
+    def draw(self, context):
+        s, layout = camera.active(context.scene).cf_camera, self.layout
+        layout.prop(s, 'show_mask')
+        col = layout.column()
+        col.enabled = bool(s.frames)
+        col.prop(s, 'mask_source')
+        col.prop(s, 'mask_opacity')
 
 
 class CF_PT_path(CameraPanel, bpy.types.Panel):
@@ -166,6 +181,7 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
         layout.prop(s, 'export_path')
         layout.prop(s, 'export_axis')
         layout.prop(s, 'export_horizon')
+        layout.prop(s, 'export_mask')
         if obj.data.type in {'PERSP', 'ORTHO'} and camera.synced(context.scene, obj):
             for notice in camera.export_auxiliary(context.scene, obj)[2]:
                 layout.label(text=notice, icon='INFO')
@@ -175,7 +191,7 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
         layout.operator('cf.export_psd', icon='EXPORT')
 
 
-CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_path, CF_PT_export)
+CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_mask, CF_PT_path, CF_PT_export)
 
 
 def register():

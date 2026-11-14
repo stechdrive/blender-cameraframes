@@ -12,6 +12,7 @@
 !/blender_cameraframes/camera.py
 !/blender_cameraframes/geometry.py
 !/blender_cameraframes/interaction.py
+!/blender_cameraframes/mask.py
 !/blender_cameraframes/operators.py
 !/blender_cameraframes/overlay.py
 !/blender_cameraframes/properties.py

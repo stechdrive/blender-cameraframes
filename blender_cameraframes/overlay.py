@@ -5,13 +5,17 @@ import bpy
 import blf
 from bpy.app.handlers import persistent
 from bpy_extras.view3d_utils import location_3d_to_region_2d
-from . import camera, geometry
+from . import camera, geometry, mask
 
 _handler = None
 _shader = None
 _frame_cache = OrderedDict()
 _path_cache = OrderedDict()
 _auxiliary_cache = OrderedDict()
+_mask_cache = OrderedDict()
+_mask_shader = None
+_mask_fill_shader = None
+_mask_quad = None
 _markers = {}
 _last_error = None
 _view_states = OrderedDict()
@@ -320,10 +324,90 @@ def draw_batch(batch, color, width):
         batch.draw(_shader)
 
 
+def make_mask_texture(key, width, height):
+    """Union on the GPU only after a paper/shape change; no scene rendering."""
+    import gpu
+    from mathutils import Matrix
+    from gpu_extras.batch import batch_for_shader
+    global _mask_fill_shader
+    triangles = mask.triangles(key, width, height)
+    # Bounded, paper-based resolution, unchanged by camera/view navigation.
+    scale = min(2.0, 4096 / max(width, height), sqrt(8_000_000 / (width * height)))
+    tw, th = max(1, round(width * scale)), max(1, round(height * scale))
+    texture = gpu.types.GPUTexture((tw, th), format='R8')
+    texture.filter_mode(True)
+    framebuffer = gpu.types.GPUFrameBuffer(color_slots=(texture,))
+    if _mask_fill_shader is None:
+        _mask_fill_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    points = []
+    for tri in triangles:
+        if mask.cross(*tri) < 0:
+            tri = tri[::-1]
+        points.extend((x, y, 0) for x, y in tri)
+    batch = batch_for_shader(_mask_fill_shader, 'TRIS', {'pos': points}) if points else None
+    viewport, scissor = gpu.state.viewport_get(), gpu.state.scissor_get()
+    blend, depth = gpu.state.blend_get(), gpu.state.depth_test_get()
+    try:
+        with framebuffer.bind():
+            gpu.state.viewport_set(0, 0, tw, th)
+            gpu.state.scissor_set(0, 0, tw, th)
+            framebuffer.clear(color=(0, 0, 0, 0))
+            gpu.state.blend_set('NONE')
+            gpu.state.depth_test_set('NONE')
+            with gpu.matrix.push_pop(), gpu.matrix.push_pop_projection():
+                gpu.matrix.load_identity()
+                gpu.matrix.load_projection_matrix(Matrix(((2 / width, 0, 0, -1), (0, 2 / height, 0, -1),
+                                                         (0, 0, 1, 0), (0, 0, 0, 1))))
+                if batch:
+                    _mask_fill_shader.bind()
+                    _mask_fill_shader.uniform_float('color', (1, 1, 1, 1))
+                    batch.draw(_mask_fill_shader)
+    finally:
+        gpu.state.viewport_set(*viewport)
+        gpu.state.scissor_set(*scissor)
+        gpu.state.blend_set(blend)
+        gpu.state.depth_test_set(depth)
+    return texture
+
+
+def draw_mask(s, box):
+    if not s.show_mask or not s.frames or s.mask_opacity <= 0:
+        return
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    global _mask_shader, _mask_quad
+    if _mask_shader is None:
+        interface = gpu.types.GPUStageInterfaceInfo('cf_mask_uv')
+        interface.smooth('VEC2', 'uv')
+        info = gpu.types.GPUShaderCreateInfo()
+        info.vertex_in(0, 'VEC2', 'pos')
+        info.vertex_out(interface)
+        info.push_constant('MAT4', 'mvp')
+        info.push_constant('FLOAT', 'opacity')
+        info.sampler(0, 'FLOAT_2D', 'coverage')
+        info.fragment_out(0, 'VEC4', 'fragColor')
+        info.vertex_source('void main() { uv = pos; gl_Position = mvp * vec4(pos, 0.0, 1.0); }')
+        info.fragment_source('void main() { fragColor = vec4(0.0, 0.0, 0.0, opacity * (1.0 - texture(coverage, uv).r)); }')
+        _mask_shader = gpu.shader.create_from_info(info)
+        _mask_quad = batch_for_shader(_mask_shader, 'TRIS', {'pos': ((0, 0), (1, 0), (1, 1), (0, 1))},
+                                      indices=((0, 1, 2), (0, 2, 3)))
+    key = mask.key_for(s)
+    texture = cached(_mask_cache, (key, s.width, s.height), make_mask_texture, key, s.width, s.height)
+    with gpu.matrix.push_pop():
+        gpu.matrix.translate((box[0], box[3], 0))
+        gpu.matrix.scale((box[2] - box[0], box[1] - box[3], 1))
+        _mask_shader.bind()
+        _mask_shader.uniform_float('mvp', gpu.matrix.get_projection_matrix() @ gpu.matrix.get_model_view_matrix())
+        _mask_shader.uniform_float('opacity', s.mask_opacity / 100)
+        _mask_shader.uniform_sampler('coverage', texture)
+        _mask_quad.draw(_mask_shader)
+
+
 def draw_guides(scene, obj, box, viewport_size, *, editing=False):
     import gpu
     s = obj.cf_camera
     path, batches, auxiliary, labels, markers = batches_for(scene, obj)
+    draw_mask(s, box)
     scale_x, scale_y = (box[2] - box[0]) / s.width, (box[3] - box[1]) / s.height
     width = max(0.7, s.line_width * scale_x)
     _shader.bind()
@@ -395,15 +479,17 @@ def register():
 
 
 def unregister():
-    global _handler, _shader
+    global _handler, _shader, _mask_shader, _mask_fill_shader, _mask_quad
     if _handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handler, 'WINDOW')
         _handler = None
-    for cache in (_frame_cache, _path_cache, _auxiliary_cache, _markers):
+    for cache in (_frame_cache, _path_cache, _auxiliary_cache, _mask_cache, _markers):
         cache.clear()
+    mask.clear()
     _view_states.clear()
     _editing_areas.clear()
     for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
         if after_undo in handlers:
             handlers.remove(after_undo)
     _shader = None
+    _mask_shader = _mask_fill_shader = _mask_quad = None

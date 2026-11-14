@@ -4,7 +4,8 @@
 Coordinates are pixels at 100 percent output size, with Y increasing downwards.
 Handle vectors are relative to their FRAME centre; angles are clockwise.
 """
-from math import atan, cos, degrees, hypot, pi, sin
+from functools import lru_cache
+from math import atan, ceil, cos, degrees, hypot, isfinite, pi, sin, sqrt
 
 AXIS_COLOR = (1.0, 0.35, 0.35)
 HORIZON_COLOR = (0.4, 1.0, 0.5)
@@ -72,30 +73,77 @@ def cubic(a, b, c, d, t):
                  3 * u * t * t * c[k] + t ** 3 * d[k] for k in (0, 1))
 
 
+MOTION_ERROR = 0.15  # Paper pixels, independent of viewport zoom and output %.
+MAX_MOTION_SAMPLES = 65536
+
+
+def motion_key(frames, ratio, curved=True):
+    """Only effective geometry: names, colours, visibility and selection are absent."""
+    return (ratio, curved if len(frames) > 1 else False, tuple(
+        (f.x, f.y, f.width, f.angle, handles(frames, i) if curved and len(frames) > 1 else ((0, 0), (0, 0)))
+        for i, f in enumerate(frames)))
+
+
+def motion_rectangle(center, width, angle, ratio):
+    return tuple((center[0] + x, center[1] + y) for x, y in
+                 (rotate((u * width / 2, v * width / (2 * ratio)), angle)
+                  for u, v in ((-1, -1), (1, -1), (1, 1), (-1, 1))))
+
+
+@lru_cache(maxsize=4)
+def sample_motion(key):
+    """Shared centre/corner samples with a bound on linear interpolation error.
+
+    For a twice differentiable curve, chord error <= max|p''| * dt**2 / 8.
+    The cubic's second derivative is linear; check both ends, not just its
+    midpoint (which misses symmetric S curves). Add the derivative bound for
+    linearly changing width and shortest-turn rotation at the farthest corner.
+    Failures are cached too, so an unsupported shape is not retried each draw.
+    """
+    ratio, curved, frames = key
+    result = []
+    try:
+        if not isfinite(ratio) or ratio <= 0:
+            raise ValueError('FRAMEの縦横比が無効です')
+        for f in frames:
+            if not all(isfinite(v) for v in (*f[:4], *f[4][0], *f[4][1])) or f[2] <= 0:
+                raise ValueError('FRAMEまたは軌道の値が無効です')
+        if frames:
+            f = frames[0]
+            result.append((f[:2], motion_rectangle(f[:2], f[2], f[3], ratio)))
+        radius = hypot(1, 1 / ratio) / 2
+        for f, g in zip(frames, frames[1:]):
+            a, d = f[:2], g[:2]
+            b = tuple(a[k] + f[4][1][k] for k in (0, 1))
+            c = tuple(d[k] + g[4][0][k] for k in (0, 1))
+            turn = (g[3] - f[3] + pi) % (2 * pi) - pi
+            acceleration = 6 * max(hypot(*(c[k] - 2 * b[k] + a[k] for k in (0, 1))),
+                                   hypot(*(d[k] - 2 * c[k] + b[k] for k in (0, 1)))) if curved else 0
+            acceleration += radius * (2 * abs(g[2] - f[2]) * abs(turn) + max(f[2], g[2]) * turn * turn)
+            count = max(1, ceil(sqrt(acceleration / (8 * MOTION_ERROR))), ceil(abs(turn) / (pi / 12)))
+            if len(result) + count > MAX_MOTION_SAMPLES:
+                raise ValueError('軌道が複雑すぎます。FRAMEの大きさ・縦横比・ハンドルを小さくしてください')
+            for j in range(1, count + 1):
+                t = j / count
+                p = cubic(a, b, c, d, t) if curved else tuple(a[k] + (d[k] - a[k]) * t for k in (0, 1))
+                result.append((p, motion_rectangle(p, f[2] + (g[2] - f[2]) * t, f[3] + turn * t, ratio)))
+        return tuple(result)
+    except (ValueError, OverflowError) as error:
+        return str(error)
+
+
+def motion_for_key(key):
+    result = sample_motion(key)
+    if isinstance(result, str):
+        raise ValueError(result)
+    return result
+
+
 def trajectory(frames, ratio, curved=True, corner_paths=False):
-    """Bounded adaptive sampling, also retaining rotation/scale between FRAMEs."""
-    paths = [[] for _ in range(5 if corner_paths else 1)]
-    for i in range(len(frames) - 1):
-        f, g = frames[i], frames[i + 1]
-        a, d = (f.x, f.y), (g.x, g.y)
-        h1, h2 = handles(frames, i)[1], handles(frames, i + 1)[0]
-        b, c = (a[0] + h1[0], a[1] + h1[1]), (d[0] + h2[0], d[1] + h2[1])
-        # Screen-independent samples also keep PSD and viewport paths identical.
-        length = hypot(b[0] - a[0], b[1] - a[1]) + hypot(c[0] - b[0], c[1] - b[1]) + hypot(d[0] - c[0], d[1] - c[1])
-        turn = (g.angle - f.angle + pi) % (2 * pi) - pi
-        count = min(256, max(8, int(length / 12), int(abs(turn) * 48))) if curved or corner_paths else 1
-        for j in range(count + 1):
-            if i and j == 0:
-                continue
-            t = j / count
-            p = cubic(a, b, c, d, t) if curved else (a[0] + (d[0] - a[0]) * t, a[1] + (d[1] - a[1]) * t)
-            paths[0].append(p)
-            if corner_paths:
-                w = (f.width + (g.width - f.width) * t) / 2
-                for k, unit in enumerate(((-1, -1), (1, -1), (1, 1), (-1, 1)), 1):
-                    x, y = rotate((unit[0] * w, unit[1] * w / ratio), f.angle + turn * t)
-                    paths[k].append((p[0] + x, p[1] + y))
-    return paths
+    if len(frames) < 2:
+        return [[] for _ in range(5 if corner_paths else 1)]
+    motion = motion_for_key(motion_key(frames, ratio, curved))
+    return [[p for p, corners in motion]] + ([[corners[k] for p, corners in motion] for k in range(4)] if corner_paths else [])
 
 
 def guide_layers(settings, *, axis, horizon):

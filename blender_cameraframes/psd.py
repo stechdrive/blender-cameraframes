@@ -104,7 +104,7 @@ def constant_chunks(value, size):
         size -= count
 
 
-def layer_record(name, box, lengths):
+def layer_record(name, box, lengths, opacity=255):
     left, top, right, bottom = box
     # ASCII fallback plus the authoritative UTF-16 layer name (including non-BMP).
     fallback = name.encode('ascii', 'replace')[:255]
@@ -116,10 +116,10 @@ def layer_record(name, box, lengths):
     extra = pack('II', 0, 0) + pascal + tagged
     record = pack('iiiiH', top, left, bottom, right, 4)
     record += b''.join(pack('hI', channel, length) for channel, length in zip((0, 1, 2, -1), lengths))
-    return record + b'8BIMnorm' + bytes((255, 0, 8, 0)) + pack('I', len(extra)) + extra
+    return record + b'8BIMnorm' + bytes((opacity, 0, 8, 0)) + pack('I', len(extra)) + extra
 
 
-def write_psd(path, width, height, ppi, layers, progress=None):
+def write_psd(path, width, height, ppi, layers, progress=None, *, mask_layer=None):
     """Atomically replace destination only after a complete file was written.
 
     `layers` are ordered bottom-to-top. Dimensions are the actual output pixels.
@@ -128,15 +128,26 @@ def write_psd(path, width, height, ppi, layers, progress=None):
         raise ValueError('PSDは各辺4～30000px、合計6400万画素までです')
     if not math.isfinite(ppi) or not 1 <= ppi <= 10000:
         raise ValueError('PPIは1～10000です')
-    if not layers or len(layers) > 131:
-        raise ValueError('出力するガイドを1～131レイヤーにしてください')
+    layers = list(layers)
+    if mask_layer is not None:
+        if not math.isfinite(mask_layer[1]) or not 0 <= mask_layer[1] <= 1:
+            raise ValueError('マスク不透明度は0～100%です')
+        layers.insert(0, ('通過範囲マスク', (0, 0, 0), None, mask_layer))
+    if not layers or len(layers) > 132:
+        raise ValueError('出力するガイドを1～132レイヤーにしてください')
     path = Path(path)
     output_tmp = None
     try:
         with tempfile.TemporaryDirectory(prefix='camera-frames-') as folder:
             records, images, channels = [], [], []
             for i, (name, color, line_width, strokes) in enumerate(layers):
-                box, alpha = rasterize(width, height, strokes, line_width)
+                opacity = 255
+                if line_width is None:
+                    from .mask import rasterize as rasterize_mask
+                    box, alpha = rasterize_mask(width, height, strokes[0])
+                    opacity = round(strokes[1] * 255)
+                else:
+                    box, alpha = rasterize(width, height, strokes, line_width)
                 rgb = tuple(round(max(0, min(1, c)) * 255) for c in color)
                 alpha_path = Path(folder) / f'{i}.alpha'
                 alpha.tofile(alpha_path)
@@ -144,9 +155,9 @@ def write_psd(path, width, height, ppi, layers, progress=None):
                 with channel_path.open('wb') as out:
                     lengths = [zip_channel(out, constant_chunks(c, alpha.size)) for c in rgb]
                     lengths.append(zip_channel(out, (alpha[y:y + STRIP].tobytes() for y in range(0, alpha.shape[0], STRIP))))
-                records.append(layer_record(name, box, lengths))
+                records.append(layer_record(name, box, lengths, opacity))
                 channels.append(channel_path)
-                images.append((box, rgb, alpha_path))
+                images.append((box, rgb, alpha_path, opacity))
                 del alpha
                 if progress:
                     progress(0.6 * (i + 1) / len(layers))
@@ -156,17 +167,19 @@ def write_psd(path, width, height, ppi, layers, progress=None):
             from contextlib import ExitStack
             with ExitStack() as stack:
                 merged = [stack.enter_context(p.open('wb')) for p in merged_paths]
-                alpha_files = [stack.enter_context(p.open('rb')) for _, _, p in images]
+                alpha_files = [stack.enter_context(p.open('rb')) for _, _, p, _ in images]
                 for y in range(0, height, STRIP):
                     rows = min(STRIP, height - y)
                     comp = np.zeros((rows, width, 4), dtype=np.float32)
-                    for (box, rgb, _), source in zip(images, alpha_files):
+                    for (box, rgb, _, opacity), source in zip(images, alpha_files):
                         left, top, right, bottom = box
                         start, end = max(y, top), min(y + rows, bottom)
                         if start >= end:
                             continue
                         source.seek((start - top) * (right - left))
                         aa = np.frombuffer(source.read((end - start) * (right - left)), dtype=np.uint8).reshape(end - start, right - left).astype(np.float32) / 255
+                        if opacity != 255:
+                            aa *= opacity / 255
                         dest = comp[start - y:end - y, left:right]
                         dest[:, :, :3] *= (1 - aa[:, :, None])
                         dest[:, :, :3] += np.asarray(rgb, dtype=np.float32)[None, None, :] * aa[:, :, None]
