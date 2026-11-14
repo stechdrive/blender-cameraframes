@@ -319,6 +319,7 @@ def register_camera(scene, obj):
     # Native duplicates retain settings, but must receive a fresh identity.
     copied = bool(s.uid) and any(o != obj and o.type == 'CAMERA' and o.cf_camera.uid == s.uid for o in bpy.data.objects)
     if not s.uid:
+        s.next_frame_color = 1
         s.width, s.height = r.resolution_x, r.resolution_y
         s.aspect_x, s.aspect_y = r.pixel_aspect_x, r.pixel_aspect_y
         f = s.frames.add()

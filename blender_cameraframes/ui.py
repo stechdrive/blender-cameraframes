@@ -97,6 +97,9 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
     bl_label = '撮影FRAME'
     bl_idname = 'CF_PT_frames'
 
+    def draw_header_preset(self, context):
+        self.layout.prop(camera.active(context.scene).cf_camera, 'show_frame_names', text='名前')
+
     def draw(self, context):
         obj = camera.active(context.scene)
         s, layout = obj.cf_camera, self.layout

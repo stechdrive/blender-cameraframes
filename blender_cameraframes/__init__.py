@@ -3,7 +3,7 @@
 bl_info = {
     'name': 'Camera Frames',
     'author': 'Camera Frames contributors',
-    'version': (0, 1, 8),
+    'version': (0, 1, 9),
     'blender': (5, 2, 0),
     'location': '3D View > Sidebar > Camera Frames',
     'description': 'Preserve camera composition, edit shooting guides and export layered PSD',

@@ -258,8 +258,8 @@ def make_frame_batches(s):
         points = geometry.corners(f, ratio)
         color = tuple(f.color)
         batches.append((line_batch([points + points[:1]]), color, None))
-        labels.append((f.name, points[0], color))
         if f.selected or i == s.frame_index:
+            labels.append((f.name, points[0], color))
             markers.append(('CROSS', geometry.pivot(f, ratio), (1, 1, 1)))
             for p in points:
                 markers.append(('BOX', p, (1, 1, 1)))
@@ -432,7 +432,7 @@ def draw_guides(scene, obj, box, viewport_size, *, editing=False):
         for batch, color, fixed_width in auxiliary:
             draw_batch(batch, color, width)
     blf.size(0, 12)
-    for name, point, color in labels:
+    for name, point, color in labels if editing and s.show_frame_names else ():
         x, y = screen_point(point, box, s)
         if -100 < x < viewport_size[0] and 0 < y < viewport_size[1]:
             blf.position(0, x + 5, y + 6, 0)

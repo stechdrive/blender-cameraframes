@@ -9,6 +9,17 @@ from math import atan, ceil, cos, degrees, hypot, isfinite, pi, sin, sqrt
 
 AXIS_COLOR = (1.0, 0.35, 0.35)
 HORIZON_COLOR = (0.4, 1.0, 0.5)
+FRAME_COORD_LIMIT = 1000000.0
+FRAME_MIN_WIDTH = 1.0
+FRAME_MAX_WIDTH = 1000000.0
+FRAME_COLORS = (
+    (0.95, 0.08, 0.08),  # Red, blue, green, yellow, purple, cyan.
+    (0.10, 0.35, 1.00),
+    (0.08, 0.80, 0.22),
+    (1.00, 0.78, 0.02),
+    (0.75, 0.12, 0.95),
+    (0.02, 0.82, 0.90),
+)
 
 
 def axis_strokes(point):
@@ -48,6 +59,60 @@ def pivot(frame, ratio):
     x, y = rotate((frame.anchor[0] * frame.width / 2,
                    frame.anchor[1] * frame.width / (2 * ratio)), frame.angle)
     return frame.x + x, frame.y + y
+
+
+def transform_frames(frames, operation, pivot_point, *, delta=(0, 0), factor=1, turn=0):
+    """Prepare one bounded group transform before changing any Blender data.
+
+    Move and scale share one limited delta/factor. A rotation outside the safe
+    coordinate range is rejected as a whole, never clamped per FRAME.
+    """
+    if not frames:
+        return []
+    if not all(isfinite(v) for v in (*pivot_point, *delta, factor, turn)):
+        raise ValueError('変形の値が無効です')
+    limit = FRAME_COORD_LIMIT
+    px, py = pivot_point
+    if operation != 'MOVE' and max(abs(px), abs(py)) > limit + 0.25:
+        raise ValueError('基点の座標上限に達しました。基点を置き直してください')
+    if operation == 'MOVE':
+        dx, dy = (max(-limit - min(f[key] for f in frames),
+                      min(limit - max(f[key] for f in frames), value))
+                  for key, value in zip(('x', 'y'), delta))
+    elif operation == 'SCALE':
+        low = max(FRAME_MIN_WIDTH / f['width'] for f in frames)
+        high = min(FRAME_MAX_WIDTH / f['width'] for f in frames)
+        for f in frames:
+            for key, p in (('x', px), ('y', py)):
+                offset = f[key] - p
+                if offset:
+                    a, b = (-limit - p) / offset, (limit - p) / offset
+                    low, high = max(low, min(a, b)), min(high, max(a, b))
+        if low > high:
+            raise ValueError('選択FRAMEをまとめて拡縮できる範囲を超えています')
+        factor = max(low, min(high, factor))
+    elif operation != 'ROTATE':
+        raise ValueError('未対応のFRAME変形です')
+    result = []
+    for f in frames:
+        if operation == 'MOVE':
+            values = {'x': f['x'] + dx, 'y': f['y'] + dy}
+        elif operation == 'SCALE':
+            values = {'x': px + (f['x'] - px) * factor, 'y': py + (f['y'] - py) * factor,
+                      'width': f['width'] * factor,
+                      'handle_in': tuple(v * factor for v in f['handle_in']),
+                      'handle_out': tuple(v * factor for v in f['handle_out'])}
+        else:
+            x, y = rotate((f['x'] - px, f['y'] - py), turn)
+            values = {'x': px + x, 'y': py + y, 'angle': f['angle'] + turn,
+                      'handle_in': rotate(f['handle_in'], turn), 'handle_out': rotate(f['handle_out'], turn)}
+        flat = [v for value in values.values() for v in (value if isinstance(value, tuple) else (value,))]
+        if not all(isfinite(v) and abs(v) <= 3e38 for v in flat):
+            raise ValueError('FRAME変形の数値範囲を超えています')
+        if max(abs(values['x']), abs(values['y'])) > limit + 1e-7:
+            raise ValueError('FRAMEの座標上限に達しました')
+        result.append(values)
+    return result
 
 
 def handles(frames, index):

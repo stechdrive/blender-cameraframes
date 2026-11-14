@@ -2,7 +2,7 @@
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
-from . import camera, geometry, mask, overlay
+from . import camera, geometry, mask, overlay, properties
 
 
 class CameraOperator:
@@ -257,7 +257,13 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
             if len(s.frames) + count > 128:
                 self.report({'WARNING'}, 'FRAMEは128個までです')
                 return {'CANCELLED'}
+            properties.initialize_frame_colors(s)
             templates = [camera.dump(s.frames[i]) for i in indices] if self.action == 'DUPLICATE' else []
+            if templates:
+                offsets = geometry.transform_frames(templates, 'MOVE', (0, 0), delta=(32, 32))
+                templates = [dict(data, **offset) for data, offset in zip(templates, offsets)]
+            if not s.frames:
+                s.next_frame_color = 0
             for f in s.frames:
                 f.selected = False
             for data in templates or [None]:
@@ -265,12 +271,12 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
                 if data:
                     camera.load(f, data)
                     f.name += ' Copy'
-                    f.x += 32
-                    f.y += 32
                 else:
                     f.name = 'FRAME ' + str(len(s.frames))
                     f.x, f.y = s.width / 2, s.height / 2
                     f.width = min(s.width * 0.8, s.height * 0.8 * s.ratio_x / s.ratio_y)
+                f.color = geometry.FRAME_COLORS[max(0, s.next_frame_color)]
+                s.next_frame_color = (max(0, s.next_frame_color) + 1) % len(geometry.FRAME_COLORS)
                 f.selected = True
             s.frame_index = len(s.frames) - 1
         elif self.action == 'REMOVE':

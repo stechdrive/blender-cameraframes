@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from math import atan2, hypot
+from math import atan2, hypot, isfinite
 import bpy
 from bpy.props import EnumProperty
 from . import camera, geometry, overlay
@@ -29,7 +29,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         ('MOVE', '移動', 'ビュー内でドラッグして選択FRAMEを移動します。Shiftで微調整、Escで取消'),
         ('SCALE', '拡縮', 'ビュー内でドラッグして選択FRAMEを基点から拡縮します。Shiftで微調整、Escで取消'),
         ('ROTATE', '回転', 'ビュー内でドラッグして選択FRAMEを基点の周りに回転します。Shiftで微調整、Escで取消'),
-        ('PIVOT', '基点移動', '編集中のFRAMEの拡縮・回転の基点を移動します。枠の位置は変わりません')], default='PICK')
+        ('PIVOT', '基点移動', '拡縮・回転の基点をFRAMEや用紙の外にも移動できます。枠の位置は変わりません')], default='PICK')
 
     @classmethod
     def description(cls, context, properties):
@@ -51,8 +51,9 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             return {'CANCELLED'}
         self._edit_token = overlay.begin_frame_edit(context)
         self.started = False
+        self._last_transform_error = None
         context.area.header_text_set('Camera Frames: ドラッグ / G 移動 / S 拡縮 / R 回転 / A 基点 / Shift 微調整・複数選択 / Esc 取消')
-        if event.type == 'LEFTMOUSE' and context.region.type == 'WINDOW':
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and context.region.type == 'WINDOW':
             result = self.begin(context, event)
             if result:
                 return result
@@ -114,48 +115,38 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
     def update(self, event):
         s = self.obj.cf_camera
         point = self.point(event)
+        if not all(isfinite(v) for v in point):
+            raise ValueError('マウス座標が無効です')
         fine = 0.1 if event.shift else 1.0
         dx, dy = (point[0] - self.start[0]) * fine, (point[1] - self.start[1]) * fine
         px, py = self.pivot
         if self.operation == 'SCALE':
             distance = hypot(self.start[0] - px, self.start[1] - py)
             factor = max(0.001, 1 + (hypot(point[0] - px, point[1] - py) / max(distance, 1) - 1) * fine)
-            factor = max(max(1 / self.frames[i]['width'] for i in self.indices), factor)
-            factor = min(min(1000000 / self.frames[i]['width'] for i in self.indices), factor)
         else:
             factor = 1
         turn = (atan2(point[1] - py, point[0] - px) - atan2(self.start[1] - py, self.start[0] - px)) * fine
         if self.operation in {'HANDLE_IN', 'HANDLE_OUT', 'PIVOT'}:
             f, saved = s.frames[self.index], self.frames[self.index]
-            camera.load(f, saved)
             if self.operation == 'PIVOT':
-                x, y = geometry.rotate((point[0] - f.x, point[1] - f.y), -f.angle)
-                f.anchor = (max(-1, min(1, x * 2 / f.width)), max(-1, min(1, y * 2 / (f.width * s.ratio_y / s.ratio_x))))
+                limit = geometry.FRAME_COORD_LIMIT
+                point = tuple(max(-limit, min(limit, v)) for v in point)
+                x, y = geometry.rotate((point[0] - saved['x'], point[1] - saved['y']), -saved['angle'])
+                f.anchor = (x * 2 / saved['width'], y * 2 / (saved['width'] * s.ratio_y / s.ratio_x))
             else:
                 which = 0 if self.operation == 'HANDLE_IN' else 1
                 vector = (self.start_handles[which][0] + dx, self.start_handles[which][1] + dy)
                 f.handle_in, f.handle_out = self.start_handles
-                if f.handle_mode not in {'FREE', 'MIRRORED'}:
-                    f.handle_mode = 'FREE'
+                f.handle_mode = saved['handle_mode'] if saved['handle_mode'] in {'FREE', 'MIRRORED'} else 'FREE'
                 setattr(f, 'handle_in' if which == 0 else 'handle_out', vector)
                 if f.handle_mode == 'MIRRORED':
                     setattr(f, 'handle_out' if which == 0 else 'handle_in', (-vector[0], -vector[1]))
         else:
-            for i in self.indices:
-                f, saved = s.frames[i], self.frames[i]
-                camera.load(f, saved)
-                if self.operation == 'MOVE':
-                    f.x, f.y = saved['x'] + dx, saved['y'] + dy
-                elif self.operation == 'SCALE':
-                    f.x, f.y = px + (saved['x'] - px) * factor, py + (saved['y'] - py) * factor
-                    f.width = saved['width'] * factor
-                    f.handle_in = tuple(v * factor for v in saved['handle_in'])
-                    f.handle_out = tuple(v * factor for v in saved['handle_out'])
-                elif self.operation == 'ROTATE':
-                    x, y = geometry.rotate((saved['x'] - px, saved['y'] - py), turn)
-                    f.x, f.y = px + x, py + y
-                    f.angle = saved['angle'] + turn
-                    f.handle_in, f.handle_out = geometry.rotate(saved['handle_in'], turn), geometry.rotate(saved['handle_out'], turn)
+            values = geometry.transform_frames([self.frames[i] for i in self.indices], self.operation,
+                                               self.pivot, delta=(dx, dy), factor=factor, turn=turn)
+            for i, fields in zip(self.indices, values):
+                for name, value in fields.items():
+                    setattr(s.frames[i], name, value)
 
     def finish(self, context):
         overlay.end_frame_edit(getattr(self, '_edit_token', None))
@@ -186,7 +177,13 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                 if result:
                     return result
         elif event.type == 'MOUSEMOVE':
-            self.update(event)
+            try:
+                self.update(event)
+                self._last_transform_error = None
+            except ValueError as error:
+                if str(error) != self._last_transform_error:
+                    self.report({'WARNING'}, str(error))
+                    self._last_transform_error = str(error)
             context.area.tag_redraw()
         elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             self.finish(context)
