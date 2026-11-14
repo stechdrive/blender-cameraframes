@@ -14,7 +14,7 @@ class CameraOperator:
 class CF_OT_register(bpy.types.Operator):
     bl_idname = 'cf.register_camera'
     bl_label = '選択カメラを登録'
-    bl_description = '選択したカメラを登録します。共有Cameraデータは独立させます'
+    bl_description = '選択したカメラを登録します。他のカメラと設定を共有している場合は独立させます'
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -34,7 +34,7 @@ class CF_OT_register(bpy.types.Operator):
 class CF_OT_activate(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.activate_camera'
     bl_label = '編集カメラを切り替え'
-    bl_description = 'シーンの使用カメラと出力解像度も保存設定に合わせます'
+    bl_description = 'このカメラを選択し、用紙サイズをBlenderの出力設定へ反映します'
     bl_options = {'REGISTER', 'UNDO'}
     index: IntProperty(default=-1)
 
@@ -95,7 +95,7 @@ class CF_OT_unregister(bpy.types.Operator):
 class CF_OT_duplicate_camera(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.duplicate_camera'
     bl_label = 'カメラを設定ごと複製'
-    bl_description = 'Camera・ガイド・Actionを独立コピー。親・constraint・driverの参照先は保持します'
+    bl_description = '用紙設定・FRAME・アニメーションを引き継ぎ、独立して編集できるカメラを作ります'
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -193,25 +193,6 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
             overlay.restore_views(self._views)
 
 
-class CF_OT_reset(CameraOperator, bpy.types.Operator):
-    bl_idname = 'cf.reset_paper'
-    bl_label = '用紙・レンズを登録時に戻す'
-    bl_description = '用紙サイズ、焦点距離、シフト、投影方式などを登録時へ戻します。カメラの位置・回転、FRAMEの編集内容、出力倍率は保持します'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        obj = camera.active(context.scene)
-        views = overlay.capture_views(context.scene, obj)
-        margins = (-obj.cf_camera.origin[0], -obj.cf_camera.origin[1])
-        try:
-            camera.reset_paper(context.scene, obj)
-            overlay.preserve_views(context.scene, obj, views, margins)
-        except ValueError as error:
-            self.report({'ERROR'}, str(error))
-            return {'CANCELLED'}
-        return {'FINISHED'}
-
-
 class CF_OT_fit(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.fit_view'
     bl_label = '用紙を全体表示'
@@ -253,8 +234,20 @@ def selected_indices(settings):
 class CF_OT_frame(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.frame'
     bl_label = 'FRAME操作'
+    bl_description = '撮影FRAMEを編集します'
     bl_options = {'REGISTER', 'UNDO'}
-    action: EnumProperty(items=[(s, s, '') for s in ('ADD', 'DUPLICATE', 'REMOVE', 'UP', 'DOWN', 'SELECT_ALL', 'DESELECT')])
+    action: EnumProperty(items=[
+        ('ADD', '追加', '撮影FRAMEを追加します'),
+        ('DUPLICATE', '複製', '選択したFRAMEを複製します'),
+        ('REMOVE', '削除', '選択したFRAMEを削除します'),
+        ('UP', '上へ', '編集中のFRAMEを一覧の上へ移動します。軌道は一覧順につながります'),
+        ('DOWN', '下へ', '編集中のFRAMEを一覧の下へ移動します。軌道は一覧順につながります'),
+        ('SELECT_ALL', '全選択', 'すべてのFRAMEを選択します'),
+        ('DESELECT', '選択解除', 'FRAMEの選択を解除します')])
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.bl_rna.properties['action'].enum_items[properties.action].description
 
     def execute(self, context):
         s = camera.active(context.scene).cf_camera
@@ -351,7 +344,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
 
 
 CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_sync_output, CF_OT_unregister, CF_OT_duplicate_camera,
-           CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export)
+           CF_OT_paper, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export)
 
 
 def register():

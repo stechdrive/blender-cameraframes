@@ -9,7 +9,7 @@ class CF_UL_frames(bpy.types.UIList):
         row.prop(item, 'selected', text='')
         row.prop(item, 'name', text='', emboss=False)
         row.prop(item, 'visible', text='', icon='HIDE_OFF' if item.visible else 'HIDE_ON', emboss=False)
-        row.prop(item, 'export', text='', icon='EXPORT', emboss=False)
+        row.prop(item, 'export', text='PSD')
 
 
 class CF_PT_main(bpy.types.Panel):
@@ -91,7 +91,6 @@ class CF_PT_paper(CameraPanel, bpy.types.Panel):
         row = layout.row(align=True)
         row.operator('cf.paper_size', text='数値で変更')
         row.operator('cf.drag_paper', text='ドラッグ')
-        layout.operator('cf.reset_paper')
 
 
 class CF_PT_frames(CameraPanel, bpy.types.Panel):
@@ -193,12 +192,6 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
         layout.prop(s, 'export_axis')
         layout.prop(s, 'export_horizon')
         layout.prop(s, 'export_mask')
-        if obj.data.type in {'PERSP', 'ORTHO'} and camera.synced(context.scene, obj):
-            for notice in camera.export_auxiliary(context.scene, obj)[2]:
-                layout.label(text=notice, icon='INFO')
-        layout.label(text='FRAME一覧の矢印で出力対象を選択')
-        width, height = camera.output_size(context.scene, obj)
-        layout.label(text=f'{width * 25.4 / s.ppi:.1f} × {height * 25.4 / s.ppi:.1f} mm')
         layout.operator('cf.export_psd', icon='EXPORT')
 
 

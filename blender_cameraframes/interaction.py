@@ -15,7 +15,7 @@ def get_view(context, obj):
     if space.region_3d.view_perspective != 'CAMERA' or overlay.view_camera(space, context.scene) != obj:
         raise ValueError('編集カメラのカメラビューを表示してください')
     if not camera.synced(context.scene, obj):
-        raise ValueError('「保存設定を適用」を実行してください')
+        raise ValueError('「用紙サイズを出力に反映」を実行してください')
     return next(r for r in context.area.regions if r.type == 'WINDOW'), space.region_3d
 
 
@@ -24,8 +24,16 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
     bl_label = 'FRAMEをドラッグ'
     bl_description = 'クリックしてドラッグ。枠内: 移動、四隅: 拡縮、黄点: ベジェ。Shiftクリック: 複数選択'
     bl_options = {'UNDO', 'BLOCKING'}
-    mode: EnumProperty(items=[('PICK', '選択して変形', ''), ('MOVE', '移動', ''),
-                              ('SCALE', '拡縮', ''), ('ROTATE', '回転', ''), ('PIVOT', '基点移動', '')], default='PICK')
+    mode: EnumProperty(items=[
+        ('PICK', '選択して変形', '枠内をドラッグして移動、四隅で拡縮、黄色い点でベジェを編集します'),
+        ('MOVE', '移動', 'ビュー内でドラッグして選択FRAMEを移動します。Shiftで微調整、Escで取消'),
+        ('SCALE', '拡縮', 'ビュー内でドラッグして選択FRAMEを基点から拡縮します。Shiftで微調整、Escで取消'),
+        ('ROTATE', '回転', 'ビュー内でドラッグして選択FRAMEを基点の周りに回転します。Shiftで微調整、Escで取消'),
+        ('PIVOT', '基点移動', '編集中のFRAMEの拡縮・回転の基点を移動します。枠の位置は変わりません')], default='PICK')
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.bl_rna.properties['mode'].enum_items[properties.mode].description
 
     def invoke(self, context, event):
         self.obj = camera.active(context.scene)

@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Camera settings and event-driven selection; no polling or render callbacks."""
-import json
 import math
 import uuid
 import bpy
@@ -304,13 +303,6 @@ def restore(scene, obj, state):
         setattr(scene.render, key, value)
 
 
-def set_baseline(obj):
-    s = obj.cf_camera
-    s.origin = (0, 0)
-    s.baseline = json.dumps({'projection': projection(obj), 'width': s.width, 'height': s.height,
-                             'aspect_x': s.aspect_x, 'aspect_y': s.aspect_y})
-
-
 def register_camera(scene, obj):
     check_camera(obj)
     entries = scene.cf_scene.cameras
@@ -324,7 +316,7 @@ def register_camera(scene, obj):
         raise ValueError('用紙は4～30000pxに対応しています')
     if obj.data.users > 1:
         obj.data = obj.data.copy()
-    # Native duplicates retain settings, but must receive a fresh identity/baseline.
+    # Native duplicates retain settings, but must receive a fresh identity.
     copied = bool(s.uid) and any(o != obj and o.type == 'CAMERA' and o.cf_camera.uid == s.uid for o in bpy.data.objects)
     if not s.uid:
         s.width, s.height = r.resolution_x, r.resolution_y
@@ -332,11 +324,9 @@ def register_camera(scene, obj):
         f = s.frames.add()
         f.name, f.x, f.y = 'FRAME A', s.width / 2, s.height / 2
         f.width, f.selected = min(s.width * 0.8, s.height * 0.8 * 16 / 9), True
-        set_baseline(obj)
     if not s.uid or copied:
         s.uid = uuid.uuid4().hex
-    if copied:
-        set_baseline(obj)
+        s.origin = (0, 0)
     entries.add().camera = obj
     scene.cf_scene.active_index = len(entries) - 1
     apply(scene, obj)
@@ -385,7 +375,7 @@ def duplicate(scene, obj):
         copied.cf_camera.uid = uuid.uuid4().hex
         copy_actions(copied, actions)
         copy_actions(data, actions)
-        set_baseline(copied)
+        copied.cf_camera.origin = (0, 0)
         scene.collection.objects.link(copied)
         scene.cf_scene.cameras.add().camera = copied
         entry_added = True
@@ -438,40 +428,6 @@ def resize(scene, obj, width, height):
     s.width, s.height = width, height
     apply(scene, obj)
     return left, top
-
-
-def reset_paper(scene, obj):
-    check_resize(scene, obj)
-    s = obj.cf_camera
-    try:
-        base = json.loads(s.baseline)
-        if set(base['projection']) != set(PROJECTION):
-            raise ValueError()
-        for key in ('width', 'height', 'aspect_x', 'aspect_y'):
-            prop = s.bl_rna.properties[key]
-            value = base[key]
-            if not isinstance(value, (float, int)) or not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max:
-                raise ValueError()
-        for key, value in base['projection'].items():
-            prop = obj.data.bl_rna.properties[key]
-            if prop.type == 'ENUM':
-                if value not in prop.enum_items:
-                    raise ValueError()
-            elif not isinstance(value, (float, int)) or not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max:
-                raise ValueError()
-    except (ValueError, KeyError, TypeError):
-        raise ValueError('復帰基準が読み取れません。カメラを再登録してください') from None
-    if any(not (-1000000 <= f.x - s.origin[0] <= 1000000 and -1000000 <= f.y - s.origin[1] <= 1000000) for f in s.frames):
-        raise ValueError('FRAMEの座標上限に達しました')
-    for f in s.frames:
-        f.x -= s.origin[0]
-        f.y -= s.origin[1]
-    for key, value in base['projection'].items():
-        setattr(obj.data, key, value)
-    for key in ('width', 'height', 'aspect_x', 'aspect_y'):
-        setattr(s, key, base[key])
-    s.origin = (0, 0)
-    apply(scene, obj)
 
 
 def horizon_normal(obj):

@@ -57,8 +57,10 @@ class CFFrame(bpy.types.PropertyGroup):
     angle: FloatProperty(name='回転', subtype='ANGLE', update=redraw)
     anchor: FloatVectorProperty(name='基点', size=2, min=-1, max=1, default=(0, 0), update=redraw)
     selected: BoolProperty(name='選択', default=False, update=redraw)
-    visible: BoolProperty(name='表示', default=True, update=redraw)
-    export: BoolProperty(name='PSD', default=True)
+    visible: BoolProperty(name='ビューに表示', default=True, update=redraw,
+                          description='このFRAMEの枠線をビューに表示します。PSDの出力設定は変えません')
+    export: BoolProperty(name='PSDに書き出す', default=True,
+                         description='このFRAMEの枠線をPSDの独立レイヤーに書き出します。ビューの表示とは別に設定できます')
     color: FloatVectorProperty(name='色', size=3, subtype='COLOR', min=0, max=1, default=(0.1, 0.65, 1), update=redraw)
     handle_mode: EnumProperty(name='ハンドル', items=[(s, n, '') for s, n in
         [('AUTO', '自動'), ('CORNER', '角'), ('MIRRORED', '対称'), ('FREE', '自由')]], default='AUTO', update=redraw)
@@ -72,12 +74,12 @@ class CFCamera(bpy.types.PropertyGroup):
     height: IntProperty(name='用紙高さ', min=4, max=30000, default=1080)
     aspect_x: FloatProperty(default=1, min=1, max=200)
     aspect_y: FloatProperty(default=1, min=1, max=200)
-    ppi: FloatProperty(name='PPI', default=150, min=1, max=10000)
-    paper_anchor: EnumProperty(name='用紙の固定基点', items=[
+    ppi: FloatProperty(name='PPI', default=150, min=1, max=10000,
+                       description='PSDに記録する解像度です。画像のピクセル数は変えません')
+    paper_anchor: EnumProperty(name='用紙の固定基点', description='用紙サイズを変更するとき、構図を固定する位置を選びます', items=[
         (str(i), n, '') for i, n in enumerate(('左上', '上', '右上', '左', '中央', '右', '左下', '下', '右下'))], default='4')
     aspect_lock: BoolProperty(name='用紙の縦横比を固定', default=False)
     origin: FloatVectorProperty(size=2)
-    baseline: StringProperty()
     frames: CollectionProperty(type=CFFrame)
     frame_index: IntProperty(default=0, min=0, update=redraw)
     # Computed UI properties belong to the Object ID so native numeric editing
@@ -110,9 +112,9 @@ class CFCamera(bpy.types.PropertyGroup):
     show_axis: BoolProperty(name='光軸', default=True, update=redraw)
     show_horizon: BoolProperty(name='アイレベル', default=True, update=redraw)
     export_axis: BoolProperty(name='光軸をPSDへ', default=True,
-                             description='画面表示とは独立して、光軸を別レイヤーへ出力します')
+                             description='画面表示とは独立して光軸を出力します。用紙外にある場合は出力しません')
     export_horizon: BoolProperty(name='アイレベルをPSDへ', default=True,
-                                description='画面表示とは独立して、アイレベルを別レイヤーへ出力します')
+                                description='画面表示とは独立してアイレベルを出力します。用紙外にある場合や正投影では出力しません')
 
 
 class CFCameraEntry(bpy.types.PropertyGroup):

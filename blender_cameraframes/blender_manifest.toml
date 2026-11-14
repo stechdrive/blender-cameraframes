@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "camera_frames"
-version = "0.1.7"
+version = "0.1.8"
 name = "Camera Frames"
 tagline = "Preserve composition and export layered shooting guides"
 maintainer = "Camera Frames contributors"
