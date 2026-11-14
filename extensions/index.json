@@ -1,0 +1,29 @@
+{
+  "version": "v1",
+  "blocklist": [],
+  "data": [
+    {
+      "schema_version": "1.0.0",
+      "id": "camera_frames",
+      "version": "0.1.5",
+      "name": "Camera Frames",
+      "tagline": "Preserve composition and export layered shooting guides",
+      "maintainer": "Camera Frames contributors",
+      "type": "add-on",
+      "tags": [
+        "Camera",
+        "Import-Export"
+      ],
+      "blender_version_min": "5.2.0",
+      "license": [
+        "SPDX:GPL-3.0-or-later"
+      ],
+      "permissions": {
+        "files": "Export guide PSD files to the chosen destination"
+      },
+      "archive_url": "https://github.com/stechdrive/blender-cameraframes/releases/download/v0.1.5/camera_frames-0.1.5.zip",
+      "archive_size": 52218,
+      "archive_hash": "sha256:0e7f2f62db76657e901033e5760f3120d70a0170fe1e0f66f97aaf2143824244"
+    }
+  ]
+}

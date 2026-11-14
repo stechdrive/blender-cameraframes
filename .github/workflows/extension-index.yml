@@ -1,0 +1,81 @@
+name: Publish Blender update index
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - extensions/index.json
+      - .github/workflows/extension-index.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blender-update-index
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Verify release and prepare index
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, json, os, subprocess, tomllib, urllib.request, zipfile
+          from pathlib import Path
+
+          raw = Path('extensions/index.json').read_bytes()
+          feed = json.loads(raw)
+          assert set(feed) == {'version', 'blocklist', 'data'}
+          assert feed['version'] == 'v1' and feed['blocklist'] == [] and len(feed['data']) == 1
+          item = feed['data'][0]
+          manifest = tomllib.loads(Path('blender_cameraframes/blender_manifest.toml').read_text())
+          assert manifest['id'] == 'camera_frames'
+          assert {k: v for k, v in item.items() if not k.startswith('archive_')} == manifest
+          version = manifest['version']
+          repository = os.environ['GITHUB_REPOSITORY']
+          url = f'https://github.com/{repository}/releases/download/v{version}/camera_frames-{version}.zip'
+          assert item['archive_url'] == url
+          assert 0 < item['archive_size'] <= 20_000_000
+          with urllib.request.urlopen(url, timeout=60) as response:
+              package = response.read(item['archive_size'] + 1)
+          assert len(package) == item['archive_size']
+          assert 'sha256:' + hashlib.sha256(package).hexdigest() == item['archive_hash']
+          paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', 'HEAD', '--',
+                                           'blender_cameraframes', 'LICENSE', 'README.md']).decode().splitlines()
+          expected = {p.removeprefix('blender_cameraframes/'): subprocess.check_output(['git', 'show', 'HEAD:' + p])
+                      for p in paths}
+          with zipfile.ZipFile(io.BytesIO(package)) as archive:
+              assert not archive.comment and len(archive.infolist()) == len(expected)
+              assert set(archive.namelist()) == set(expected)
+              for info in archive.infolist():
+                  assert not info.comment and not info.extra and info.external_attr >> 16 == 0o100644
+                  assert archive.read(info) == expected[info.filename], info.filename
+          output = Path('_site')
+          output.mkdir()
+          (output / 'index.json').write_bytes(raw)
+          (output / 'index.html').write_text('<!doctype html><meta charset="utf-8"><title>Camera Frames</title>'
+                                            '<p>Camera Frames</p><a href="index.json">Blender update index</a>', encoding='utf-8')
+          print(f'Verified {len(expected)} package members and published only the update index.')
+          PY
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: _site
+      - name: Deploy update index
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

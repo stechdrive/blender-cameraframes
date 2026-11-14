@@ -2,8 +2,12 @@
 *
 
 # Explicitly approved repository files.
+!/.github/
 !/blender_cameraframes/
+!/extensions/
+!/.github/workflows/
 !/.gitattributes
+!/.github/workflows/extension-index.yml
 !/.gitignore
 !/LICENSE
 !/README.md
@@ -18,6 +22,7 @@
 !/blender_cameraframes/properties.py
 !/blender_cameraframes/psd.py
 !/blender_cameraframes/ui.py
+!/extensions/index.json
 
 # Local material and credentials must remain private.
 .local/
