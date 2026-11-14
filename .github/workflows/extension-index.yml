@@ -57,7 +57,9 @@ jobs:
           assert len(package) == item['archive_size']
           assert 'sha256:' + hashlib.sha256(package).hexdigest() == item['archive_hash']
           paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', 'HEAD', '--',
-                                           'blender_cameraframes', 'LICENSE', 'README.md']).decode().splitlines()
+                                           'blender_cameraframes', 'LICENSE', 'README.md',
+                                           'docs/images/composition-expansion.png', 'docs/images/frame-controls.png',
+                                           'docs/images/vertical-pan.png', 'docs/images/guide-psd-layers.png']).decode().splitlines()
           expected = {p.removeprefix('blender_cameraframes/'): subprocess.check_output(['git', 'show', 'HEAD:' + p])
                       for p in paths}
           with zipfile.ZipFile(io.BytesIO(package)) as archive:
