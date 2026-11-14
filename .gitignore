@@ -2,9 +2,21 @@
 *
 
 # Explicitly approved repository files.
+!/blender_cameraframes/
 !/.gitattributes
 !/.gitignore
+!/LICENSE
 !/README.md
+!/blender_cameraframes/__init__.py
+!/blender_cameraframes/blender_manifest.toml
+!/blender_cameraframes/camera.py
+!/blender_cameraframes/geometry.py
+!/blender_cameraframes/interaction.py
+!/blender_cameraframes/operators.py
+!/blender_cameraframes/overlay.py
+!/blender_cameraframes/properties.py
+!/blender_cameraframes/psd.py
+!/blender_cameraframes/ui.py
 
 # Local material and credentials must remain private.
 .local/

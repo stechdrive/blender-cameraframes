@@ -1,0 +1,319 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+import bpy
+from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
+from bpy_extras.io_utils import ExportHelper
+from . import camera, geometry, overlay
+
+
+class CameraOperator:
+    @classmethod
+    def poll(cls, context):
+        return bool(camera.active(context.scene))
+
+
+class CF_OT_register(bpy.types.Operator):
+    bl_idname = 'cf.register_camera'
+    bl_label = '選択カメラを登録'
+    bl_description = '選択したカメラを登録します。共有Cameraデータは独立させます'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        try:
+            camera.register_camera(context.scene, context.active_object)
+        except ValueError as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class CF_OT_activate(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.activate_camera'
+    bl_label = '編集カメラを切り替え'
+    bl_description = 'シーンの使用カメラと出力解像度も保存設定に合わせます'
+    bl_options = {'REGISTER', 'UNDO'}
+    index: IntProperty(default=-1)
+
+    @classmethod
+    def poll(cls, context):
+        return len(context.scene.cf_scene.cameras) > 0
+
+    def execute(self, context):
+        state = context.scene.cf_scene
+        index = self.index if self.index >= 0 else state.active_index
+        if not 0 <= index < len(state.cameras):
+            return {'CANCELLED'}
+        obj = state.cameras[index].camera
+        if not obj or obj.type != 'CAMERA' or context.scene.objects.get(obj.name) != obj:
+            self.report({'WARNING'}, 'このカメラはシーン内にありません。登録解除してください')
+            return {'CANCELLED'}
+        state.active_index = index
+        camera.apply(context.scene, obj)
+        if context.area:
+            context.area.tag_redraw()
+        return {'FINISHED'}
+
+
+class CF_OT_unregister(bpy.types.Operator):
+    bl_idname = 'cf.unregister_camera'
+    bl_label = '登録解除'
+    bl_description = '一覧から外します。カメラとその設定は保持します'
+    bl_options = {'REGISTER', 'UNDO'}
+    index: IntProperty(default=-1)
+
+    def execute(self, context):
+        state = context.scene.cf_scene
+        index = self.index if self.index >= 0 else state.active_index
+        if not 0 <= index < len(state.cameras):
+            return {'CANCELLED'}
+        state.cameras.remove(index)
+        state.active_index = min(state.active_index, max(0, len(state.cameras) - 1))
+        obj = camera.active(context.scene)
+        if obj:
+            camera.apply(context.scene, obj)
+        return {'FINISHED'}
+
+
+class CF_OT_duplicate_camera(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.duplicate_camera'
+    bl_label = 'カメラを設定ごと複製'
+    bl_description = 'Camera・ガイド・Actionを独立コピー。親・constraint・driverの参照先は保持します'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        try:
+            obj = camera.duplicate(context.scene, camera.active(context.scene))
+        except (ValueError, RuntimeError) as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+        if obj.parent or obj.constraints or (obj.animation_data and obj.animation_data.drivers):
+            self.report({'INFO'}, '複製しました。親・constraint・driverの参照先は引き継いでいます')
+        return {'FINISHED'}
+
+
+class CF_OT_paper(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.paper_size'
+    bl_label = '構図を保って用紙変更'
+    bl_description = '数値欄をドラッグまたは直接入力。プレビューを確認して確定します'
+    bl_options = {'REGISTER', 'UNDO'}
+    width: IntProperty(name='幅 px', min=4, max=30000, default=1920)
+    height: IntProperty(name='高さ px', min=4, max=30000, default=1080)
+    lock: BoolProperty(name='縦横比を固定')
+    _state = None
+    _views = None
+    _error = ''
+
+    def invoke(self, context, event):
+        obj = camera.active(context.scene)
+        try:
+            camera.check_resize(context.scene, obj)
+        except ValueError as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+        self._state = camera.snapshot(context.scene, obj)
+        self._views = overlay.capture_views(context.scene, obj)
+        self.width, self.height, self.lock = obj.cf_camera.width, obj.cf_camera.height, obj.cf_camera.aspect_lock
+        self._previous = (self.width, self.height)
+        self._error = ''
+        return context.window_manager.invoke_props_dialog(self, width=320)
+
+    def draw(self, context):
+        self.layout.prop(self, 'width')
+        self.layout.prop(self, 'height')
+        self.layout.prop(self, 'lock')
+        self.layout.label(text='数値をドラッグ: 連続変更 / Shift: 微調整')
+        self.layout.label(text='Esc: 変更を取り消す')
+        if self._error:
+            self.layout.label(text=self._error, icon='ERROR')
+
+    def check(self, context):
+        obj = camera.active(context.scene)
+        if not self._state or not obj:
+            return False
+        if self.lock:
+            base = self._state['settings']
+            if self.width != self._previous[0]:
+                self.width, self.height = geometry.locked_dimensions(self.width, self.height, base['width'], base['height'])
+            elif self.height != self._previous[1]:
+                self.width, self.height = geometry.locked_dimensions(self.width, self.height, base['width'], base['height'], 'Y')
+        self._previous = (self.width, self.height)
+        camera.restore(context.scene, obj, self._state)
+        overlay.restore_views(self._views)
+        try:
+            margins = camera.resize(context.scene, obj, self.width, self.height)
+            overlay.preserve_views(context.scene, obj, self._views, margins)
+            obj.cf_camera.aspect_lock = self.lock
+            self._error = ''
+        except ValueError as error:
+            self._error = str(error)
+        return True
+
+    def execute(self, context):
+        obj = camera.active(context.scene)
+        if self._state:
+            self.check(context)
+            if self._error:
+                self.cancel(context)
+                self.report({'ERROR'}, self._error)
+                return {'CANCELLED'}
+        else:
+            views = overlay.capture_views(context.scene, obj)
+            try:
+                margins = camera.resize(context.scene, obj, self.width, self.height)
+                overlay.preserve_views(context.scene, obj, views, margins)
+            except ValueError as error:
+                self.report({'ERROR'}, str(error))
+                return {'CANCELLED'}
+        return {'FINISHED'}
+
+    def cancel(self, context):
+        obj = camera.active(context.scene)
+        if self._state and obj:
+            camera.restore(context.scene, obj, self._state)
+            overlay.restore_views(self._views)
+
+
+class CF_OT_reset(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.reset_paper'
+    bl_label = '登録時の用紙・投影へ戻す'
+    bl_description = '用紙とレンズ・投影を復帰。FRAMEの編集内容とカメラの位置・回転は保持します'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = camera.active(context.scene)
+        views = overlay.capture_views(context.scene, obj)
+        margins = (-obj.cf_camera.origin[0], -obj.cf_camera.origin[1])
+        try:
+            camera.reset_paper(context.scene, obj)
+            overlay.preserve_views(context.scene, obj, views, margins)
+        except ValueError as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class CF_OT_fit(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.fit_view'
+    bl_label = '用紙を全体表示'
+    bl_description = 'ビューポート表示だけを合わせます。用紙・構図は変更しません'
+
+    def execute(self, context):
+        if not context.area or context.area.type != 'VIEW_3D':
+            return {'CANCELLED'}
+        space = context.space_data
+        space.region_3d.view_perspective = 'CAMERA'
+        space.region_3d.view_camera_zoom = 0
+        space.region_3d.view_camera_offset = (0, 0)
+        region = next(r for r in context.area.regions if r.type == 'WINDOW')
+        with context.temp_override(region=region):
+            bpy.ops.view3d.view_center_camera()
+        return {'FINISHED'}
+
+
+def selected_indices(settings):
+    indices = [i for i, frame in enumerate(settings.frames) if frame.selected]
+    if not indices and settings.frames:
+        indices = [min(settings.frame_index, len(settings.frames) - 1)]
+    return indices
+
+
+class CF_OT_frame(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.frame'
+    bl_label = 'FRAME操作'
+    bl_options = {'REGISTER', 'UNDO'}
+    action: EnumProperty(items=[(s, s, '') for s in ('ADD', 'DUPLICATE', 'REMOVE', 'UP', 'DOWN', 'SELECT_ALL', 'DESELECT')])
+
+    def execute(self, context):
+        s = camera.active(context.scene).cf_camera
+        indices = selected_indices(s)
+        if self.action in {'ADD', 'DUPLICATE'}:
+            count = len(indices) if self.action == 'DUPLICATE' and indices else 1
+            if len(s.frames) + count > 128:
+                self.report({'WARNING'}, 'FRAMEは128個までです')
+                return {'CANCELLED'}
+            templates = [camera.dump(s.frames[i]) for i in indices] if self.action == 'DUPLICATE' else []
+            for f in s.frames:
+                f.selected = False
+            for data in templates or [None]:
+                f = s.frames.add()
+                if data:
+                    camera.load(f, data)
+                    f.name += ' Copy'
+                    f.x += 32
+                    f.y += 32
+                else:
+                    f.name = 'FRAME ' + str(len(s.frames))
+                    f.x, f.y = s.width / 2, s.height / 2
+                    f.width = min(s.width * 0.8, s.height * 0.8 * s.ratio_x / s.ratio_y)
+                f.selected = True
+            s.frame_index = len(s.frames) - 1
+        elif self.action == 'REMOVE':
+            for i in reversed(indices):
+                s.frames.remove(i)
+            s.frame_index = min(s.frame_index, max(0, len(s.frames) - 1))
+        elif self.action in {'UP', 'DOWN'} and s.frames:
+            index = min(s.frame_index, len(s.frames) - 1)
+            dest = max(0, min(len(s.frames) - 1, index + (-1 if self.action == 'UP' else 1)))
+            s.frames.move(index, dest)
+            s.frame_index = dest
+        elif self.action in {'SELECT_ALL', 'DESELECT'}:
+            for f in s.frames:
+                f.selected = self.action == 'SELECT_ALL'
+        if context.area:
+            context.area.tag_redraw()
+        return {'FINISHED'}
+
+
+class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
+    bl_idname = 'cf.export_psd'
+    bl_label = 'ガイドPSDを書き出す'
+    bl_description = 'FRAMEごとと軌道を透明な別レイヤーで保存します。本画はレンダーしません'
+    filename_ext = '.psd'
+    filter_glob: StringProperty(default='*.psd', options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        self.filepath = bpy.path.clean_name(camera.active(context.scene).name) + '_guides.psd'
+        return super().invoke(context, event)
+
+    def execute(self, context):
+        from .psd import write_psd
+        obj = camera.active(context.scene)
+        s = obj.cf_camera
+        if not camera.synced(context.scene, obj):
+            self.report({'ERROR'}, 'シーンの出力設定が異なります。「保存設定を適用」を実行してください')
+            return {'CANCELLED'}
+        if context.scene.render.use_border and context.scene.render.use_crop_to_border:
+            self.report({'ERROR'}, 'PSD出力時はレンダー領域の「領域にクロップ」を解除してください')
+            return {'CANCELLED'}
+        if abs(s.aspect_x - s.aspect_y) > 1e-6:
+            self.report({'ERROR'}, 'PSD出力は正方形ピクセルに対応しています')
+            return {'CANCELLED'}
+        width, height = s.width * s.percentage // 100, s.height * s.percentage // 100
+        sx, sy = width / s.width, height / s.height
+        layers = [(name, color, weight * min(sx, sy), [[(x * sx, y * sy) for x, y in path] for path in paths])
+                  for name, color, weight, paths in geometry.guide_layers(s)]
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+        try:
+            write_psd(bpy.path.ensure_ext(self.filepath, '.psd'), width, height, s.ppi, layers,
+                      lambda fraction: wm.progress_update(fraction * 100))
+        except (OSError, ValueError, MemoryError) as error:
+            self.report({'ERROR'}, 'PSD出力に失敗: ' + str(error))
+            return {'CANCELLED'}
+        finally:
+            wm.progress_end()
+        self.report({'INFO'}, f'ガイドPSDを保存: {width} × {height}px / {s.ppi:g} PPI')
+        return {'FINISHED'}
+
+
+CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_unregister, CF_OT_duplicate_camera,
+           CF_OT_paper, CF_OT_reset, CF_OT_fit, CF_OT_frame, CF_OT_export)
+
+
+def register():
+    for cls in CLASSES:
+        bpy.utils.register_class(cls)
+
+
+def unregister():
+    for cls in reversed(CLASSES):
+        bpy.utils.unregister_class(cls)
