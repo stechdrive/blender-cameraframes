@@ -5,7 +5,7 @@
     {
       "schema_version": "1.0.0",
       "id": "camera_frames",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "name": "Camera Frames",
       "tagline": "Preserve composition and export layered shooting guides",
       "maintainer": "Camera Frames contributors",
@@ -21,9 +21,9 @@
       "permissions": {
         "files": "Export guide PSD files to the chosen destination"
       },
-      "archive_url": "https://github.com/stechdrive/blender-cameraframes/releases/download/v0.1.11/camera_frames-0.1.11.zip",
-      "archive_size": 2033419,
-      "archive_hash": "sha256:49c88722ae44461801954dc2b8901e42d1bb7d51dd7ea721e5556b10bca4bfed"
+      "archive_url": "https://github.com/stechdrive/blender-cameraframes/releases/download/v0.1.12/camera_frames-0.1.12.zip",
+      "archive_size": 2035853,
+      "archive_hash": "sha256:415c1ba46d9aa9754efc176b406f315008f27e0bcb7db7aab6848312588c4673"
     }
   ]
 }
