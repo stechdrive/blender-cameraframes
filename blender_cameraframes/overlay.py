@@ -9,6 +9,7 @@ from . import camera, geometry, mask
 
 _handler = None
 _shader = None
+_frame_shader = None
 _frame_cache = OrderedDict()
 _path_cache = OrderedDict()
 _auxiliary_cache = OrderedDict()
@@ -254,6 +255,70 @@ def line_batch(paths):
     return batch_for_shader(_shader, 'LINES', {'pos': points}) if points else None
 
 
+def frame_shader():
+    """Expand cached inner corners in the vertex shader; zoom changes uniforms."""
+    import gpu
+    global _frame_shader
+    if _frame_shader is None:
+        interface = gpu.types.GPUStageInterfaceInfo('cf_frame_border')
+        interface.smooth('VEC2', 'localPosition')
+        interface.flat('VEC2', 'halfExtent')
+        interface.flat('VEC4', 'borderColor')
+        info = gpu.types.GPUShaderCreateInfo()
+        info.push_constant('MAT4', 'ModelViewProjectionMatrix')
+        info.push_constant('FLOAT', 'borderReach')
+        info.push_constant('FLOAT', 'lineWidth')
+        info.push_constant('VEC4', 'color')
+        # Blender updates this built-in uniform for the active framebuffer.
+        info.push_constant('BOOL', 'srgbTarget')
+        for index, (kind, name) in enumerate((('VEC2', 'pos'), ('VEC2', 'outward'),
+                                            ('VEC2', 'corner'), ('VEC2', 'size'), ('FLOAT', 'outer'))):
+            info.vertex_in(index, kind, name)
+        info.vertex_out(interface)
+        info.fragment_out(0, 'VEC4', 'fragColor')
+        info.vertex_source('''
+            void main() {
+                float reach = outer * borderReach;
+                localPosition = corner * (size + vec2(reach));
+                halfExtent = size;
+                vec3 rgb = color.rgb;
+                if (srgbTarget) {
+                    rgb = mix(rgb / 12.92, pow((rgb + 0.055) / 1.055, vec3(2.4)),
+                              step(vec3(0.04045), rgb));
+                }
+                borderColor = vec4(rgb, color.a);
+                gl_Position = ModelViewProjectionMatrix * vec4(pos + outward * reach, 0.0, 1.0);
+            }
+        ''')
+        info.fragment_source('''
+            void main() {
+                vec2 q = abs(localPosition) - halfExtent;
+                float distance = max(q.x, q.y);
+                float aa = max(fwidth(distance), 0.000001);
+                if (distance <= 0.0) discard;
+                float coverage = clamp(distance / aa + 0.5, 0.0, 1.0)
+                               - clamp((distance - lineWidth) / aa + 0.5, 0.0, 1.0);
+                fragColor = vec4(borderColor.rgb, borderColor.a * coverage);
+            }
+        ''')
+        _frame_shader = gpu.shader.create_from_info(info)
+    return _frame_shader
+
+
+def frame_batch(frame, ratio):
+    from gpu_extras.batch import batch_for_shader
+    signs = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    indices = [tri for i in range(4) for tri in ((i, (i + 1) % 4, (i + 1) % 4 + 4),
+                                                 (i, (i + 1) % 4 + 4, i + 4))]
+    return batch_for_shader(frame_shader(), 'TRIS', {
+        'pos': geometry.corners(frame, ratio) * 2,
+        'outward': [geometry.rotate(p, frame.angle) for p in signs] * 2,
+        'corner': signs * 2,
+        'size': [(frame.width / 2, frame.width / (2 * ratio))] * 8,
+        'outer': [0.0] * 4 + [1.0] * 4,
+    }, indices=indices)
+
+
 def make_frame_batches(s):
     """Paper-space frames and handle locations, independent of the viewport."""
     ratio = s.ratio_x / s.ratio_y
@@ -263,7 +328,7 @@ def make_frame_batches(s):
             continue
         points = geometry.corners(f, ratio)
         color = tuple(f.color)
-        batches.append((line_batch([points + points[:1]]), color, None))
+        batches.append((frame_batch(f, ratio), color, None))
         if f.selected:
             labels.append((f.name, points[0], color))
             markers.append(('CROSS', geometry.pivot(f, ratio), (1, 1, 1)))
@@ -420,10 +485,21 @@ def draw_guides(scene, obj, box, viewport_size, *, editing=False):
         gpu.matrix.translate((box[0], box[3], 0))
         gpu.matrix.scale((scale_x, -scale_y, 1))
         draw_batch(path, s.path_color, width)
+        border = frame_shader()
+        border.bind()
+        border.uniform_float('ModelViewProjectionMatrix', gpu.matrix.get_projection_matrix() @ gpu.matrix.get_model_view_matrix())
+        pixel = 1 / max(min(scale_x, scale_y), 1e-9)
+        border_width = max(s.line_width, 0.7 * pixel)
+        border.uniform_float('lineWidth', border_width)
+        border.uniform_float('borderReach', border_width + pixel)
         for batch, color, fixed_width in batches:
-            # Fixed-width batches are the edit-only Bezier handle connectors.
-            if editing or fixed_width is None:
-                draw_batch(batch, color, width if fixed_width is None else fixed_width)
+            if fixed_width is None:
+                border.uniform_float('color', (*color, 1))
+                batch.draw(border)
+        _shader.bind()
+        for batch, color, fixed_width in batches:
+            if editing and fixed_width is not None:
+                draw_batch(batch, color, fixed_width)
     # Reuse small pixel-space shapes so zoom never rebuilds handle buffers.
     for kind, point, color in markers if editing else ():
         x, y = screen_point(point, box, s)
@@ -483,7 +559,7 @@ def register():
 
 
 def unregister():
-    global _handler, _shader, _mask_shader, _mask_fill_shader, _mask_quad
+    global _handler, _shader, _frame_shader, _mask_shader, _mask_fill_shader, _mask_quad
     if _handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handler, 'WINDOW')
         _handler = None
@@ -496,4 +572,5 @@ def unregister():
         if after_undo in handlers:
             handlers.remove(after_undo)
     _shader = None
+    _frame_shader = None
     _mask_shader = _mask_fill_shader = _mask_quad = None

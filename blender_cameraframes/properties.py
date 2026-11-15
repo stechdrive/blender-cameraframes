@@ -156,10 +156,10 @@ class CFCamera(bpy.types.PropertyGroup):
         description='用紙左上からの中心Y座標（px）。下向きが正。複数選択では位置関係を保って全体を移動します')
     edit_width: FloatProperty(name='幅', min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH,
         get=lambda s: frames.value(s, 'width'), set=lambda s, v: frames.set_value(s, 'width', v), update=redraw, options={'SKIP_SAVE'},
-        description='FRAMEの幅（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
+        description='枠線を含まない内側の幅（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
     edit_height: FloatProperty(name='高さ', min=0.00001, max=1e11,
         get=lambda s: frames.value(s, 'height'), set=lambda s, v: frames.set_value(s, 'height', v), update=redraw, options={'SKIP_SAVE'},
-        description='FRAMEの高さ（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
+        description='枠線を含まない内側の高さ（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
     edit_angle: FloatProperty(name='回転', subtype='ANGLE',
         get=lambda s: frames.value(s, 'angle'), set=lambda s, v: frames.set_value(s, 'angle', v), update=redraw, options={'SKIP_SAVE'},
         description='FRAMEの回転角度。複数選択では青い行のFRAMEの基点を中心に全体を同じ角度だけ回転します')

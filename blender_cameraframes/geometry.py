@@ -57,6 +57,32 @@ def corners(frame, ratio):
             (rotate(p, frame.angle) for p in ((-w, -h), (w, -h), (w, h), (-w, h)))]
 
 
+def outward_edges(points):
+    """Unit outward normals for a clockwise polygon in paper coordinates."""
+    result = []
+    for a, b in zip(points, points[1:] + points[:1]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = hypot(dx, dy)
+        if length <= 0:
+            raise ValueError('FRAMEの辺の長さが不正です')
+        result.append((dy / length, -dx / length))
+    return result
+
+
+def outset_corners(points, distance):
+    """Offset the edges, retaining square joins and the original inner bounds."""
+    normals = outward_edges(points)
+    result = []
+    for i, point in enumerate(points):
+        a, b = normals[i - 1], normals[i]
+        denominator = 1 + a[0] * b[0] + a[1] * b[1]
+        if denominator <= 1e-12:
+            raise ValueError('FRAMEの形状が不正です')
+        result.append((point[0] + distance * (a[0] + b[0]) / denominator,
+                       point[1] + distance * (a[1] + b[1]) / denominator))
+    return result
+
+
 def pivot(frame, ratio):
     x, y = rotate((frame.anchor[0] * frame.width / 2,
                    frame.anchor[1] * frame.width / (2 * ratio)), frame.angle)
@@ -229,20 +255,20 @@ def trajectory(frames, ratio, curved=True, points='CENTER'):
 
 
 def guide_layers(settings, *, axis, horizon):
-    """Bottom-to-top layers, each (name, colour, line width, polylines)."""
+    """Bottom-to-top (name, colour, line width, polylines, outside FRAME) layers."""
     ratio = settings.ratio_x / settings.ratio_y
     result = []
     for f in settings.frames:
         if f.export:
             pts = corners(f, ratio)
-            result.append((f.name, tuple(f.color), settings.line_width, [pts + pts[:1]]))
+            result.append((f.name, tuple(f.color), settings.line_width, [pts + pts[:1]], True))
     if settings.export_path and len(settings.frames) > 1:
         paths = trajectory(settings.frames, ratio, settings.path_type == 'BEZIER', settings.path_points)
-        result.append(('軌道', tuple(settings.path_color), settings.line_width, paths))
+        result.append(('軌道', tuple(settings.path_color), settings.line_width, paths, False))
     if settings.export_axis and axis is not None and 0 <= axis[0] <= settings.width and 0 <= axis[1] <= settings.height:
-        result.append(('光軸', AXIS_COLOR, settings.line_width, axis_strokes(axis)))
+        result.append(('光軸', AXIS_COLOR, settings.line_width, axis_strokes(axis), False))
     if settings.export_horizon and horizon is not None:
-        result.append(('アイレベル', HORIZON_COLOR, settings.line_width, [horizon]))
+        result.append(('アイレベル', HORIZON_COLOR, settings.line_width, [horizon], False))
     return result
 
 

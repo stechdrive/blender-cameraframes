@@ -487,8 +487,9 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         wm = context.window_manager
         wm.progress_begin(0, 100)
         try:
-            layers = [(name, color, weight * min(sx, sy), [[(x * sx, y * sy) for x, y in path] for path in paths])
-                      for name, color, weight, paths in geometry.guide_layers(s, axis=axis, horizon=horizon)]
+            layers = [(name, color, weight * min(sx, sy),
+                       [[(x * sx, y * sy) for x, y in path] for path in paths], outside)
+                      for name, color, weight, paths, outside in geometry.guide_layers(s, axis=axis, horizon=horizon)]
             mask_layer = None
             if s.export_mask and mask.has_source(s):
                 triangles = mask.triangles(mask.key_for(s), s.width, s.height)

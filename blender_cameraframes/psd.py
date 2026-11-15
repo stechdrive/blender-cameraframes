@@ -14,7 +14,7 @@ import tempfile
 import zlib
 from pathlib import Path
 import numpy as np
-from .geometry import clip_segment
+from .geometry import clip_segment, outward_edges, outset_corners
 
 MAX_PIXELS = 64_000_000
 STRIP = 64
@@ -86,6 +86,40 @@ def rasterize(width, height, strokes, line_width):
     return (left, top, right, bottom), alpha
 
 
+def rasterize_frame(width, height, points, line_width):
+    """An outside border; no sample inside the specified FRAME receives ink."""
+    normals = outward_edges(points)
+    # Cover the one-pixel AA fringe, including rotated mitered corners.
+    outer = outset_corners(points, line_width + 1)
+    left = max(0, math.floor(min(p[0] for p in outer)))
+    top = max(0, math.floor(min(p[1] for p in outer)))
+    right = min(width, math.ceil(max(p[0] for p in outer)))
+    bottom = min(height, math.ceil(max(p[1] for p in outer)))
+    if right <= left or bottom <= top:
+        return (0, 0, 1, 1), np.zeros((1, 1), dtype=np.uint8)
+    alpha = np.zeros((bottom - top, right - left), dtype=np.uint8)
+    # Visit just the four border bands, not every pixel in the FRAME interior.
+    for i in range(4):
+        j = (i + 1) % 4
+        band = (points[i], points[j], outer[i], outer[j])
+        x0, x1 = max(left, math.floor(min(p[0] for p in band))), min(right, math.ceil(max(p[0] for p in band)))
+        y0, y1 = max(top, math.floor(min(p[1] for p in band))), min(bottom, math.ceil(max(p[1] for p in band)))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        xx = np.arange(x0, x1, dtype=np.float64)[None, :] + 0.5
+        for y in range(y0, y1, STRIP):
+            yy = np.arange(y, min(y1, y + STRIP), dtype=np.float64)[:, None] + 0.5
+            distance = np.full((len(yy), x1 - x0), -np.inf)
+            for (ax, ay), (nx, ny) in zip(points, normals):
+                np.maximum(distance, (xx - ax) * nx + (yy - ay) * ny, out=distance)
+            coverage = np.clip(distance + 0.5, 0, 1) - np.clip(distance - line_width + 0.5, 0, 1)
+            coverage[distance <= 0] = 0
+            coverage = np.rint(coverage * 255).astype(np.uint8)
+            dest = alpha[y - top:y - top + len(yy), x0 - left:x1 - left]
+            np.maximum(dest, coverage, out=dest)
+    return (left, top, right, bottom), alpha
+
+
 def zip_channel(stream, chunks):
     start = stream.tell()
     stream.write(pack('H', 2))
@@ -140,12 +174,15 @@ def write_psd(path, width, height, ppi, layers, progress=None, *, mask_layer=Non
     try:
         with tempfile.TemporaryDirectory(prefix='camera-frames-') as folder:
             records, images, channels = [], [], []
-            for i, (name, color, line_width, strokes) in enumerate(layers):
+            for i, layer in enumerate(layers):
+                name, color, line_width, strokes = layer[:4]
                 opacity = 255
                 if line_width is None:
                     from .mask import rasterize as rasterize_mask
                     box, alpha = rasterize_mask(width, height, strokes[0])
                     opacity = round(strokes[1] * 255)
+                elif len(layer) > 4 and layer[4]:
+                    box, alpha = rasterize_frame(width, height, strokes[0][:4], line_width)
                 else:
                     box, alpha = rasterize(width, height, strokes, line_width)
                 rgb = tuple(round(max(0, min(1, c)) * 255) for c in color)
