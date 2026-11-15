@@ -3,27 +3,34 @@ import bpy
 from . import camera, geometry, overlay
 
 
+def lens_row(layout, settings, axis):
+    values = layout.split(factor=0.29, align=True)
+    focal = values.row(align=True)
+    angle = values.split(factor=0.535, align=True)
+    angle.prop(settings, axis, text='')
+    return focal, angle.row(align=True)
+
+
 def draw_lens_values(layout, scene, obj):
     if obj.data.type != 'PERSP' or not camera.synced(scene, obj):
         return
     s = obj.cf_camera
     error = None
     if s.frames:
-        row = layout.split(factor=0.38, align=True)
-        row.prop(s, 'frame_lens_axis', text='')
-        values = row.split(factor=0.47, align=True)
+        focal, angle = lens_row(layout, s, 'frame_lens_axis')
         try:
             camera.check_frame_focal(scene, obj)
         except ValueError as failure:
             error = str(failure)
-        values.enabled = error is None
-        values.prop(s, 'frame_focal', text='')
-        values.prop(s, 'frame_angle', text='°')
-    row = layout.split(factor=0.38, align=True)
-    row.prop(s, 'output_lens_axis', text='')
-    focal, angle = geometry.output_lens(camera.bounds(scene, obj), s.output_lens_axis)
-    number = f'{focal:.2f}' if focal < 1e6 else f'{focal:.4g}'
-    row.label(text=f'{number} mm  /  {angle:.2f}°', translate=False)
+        focal.enabled = angle.enabled = error is None
+        focal.prop(s, 'frame_focal', text='')
+        angle.prop(s, 'frame_angle', text='°')
+    focal, angle = lens_row(layout, s, 'output_lens_axis')
+    mm, degrees = geometry.output_lens(camera.bounds(scene, obj), s.output_lens_axis, s.lens_reference)
+    number = f'{mm:.2f}' if mm < 1e6 else f'{mm:.4g}'
+    focal.alignment = angle.alignment = 'RIGHT'
+    focal.label(text=f'{number} mm', translate=False)
+    angle.label(text=f'{degrees:.2f}°', translate=False)
     if error:
         layout.label(text=error, icon='INFO')
 
@@ -86,6 +93,38 @@ class CameraPanel:
         return camera.active(context.scene) is not None
 
 
+class CF_PT_lens_details(bpy.types.Panel):
+    bl_label = 'レンズ表示の詳細'
+    bl_idname = 'CF_PT_lens_details'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'HEADER'
+    bl_ui_units_x = 18
+
+    @classmethod
+    def poll(cls, context):
+        obj = camera.active(context.scene)
+        return obj is not None and obj.data.type == 'PERSP'
+
+    def draw(self, context):
+        obj = camera.active(context.scene)
+        s, layout = obj.cf_camera, self.layout
+        layout.label(text='FRAME・出力に共通の換算基準')
+        layout.prop(s, 'lens_reference', text='')
+        layout.label(text='実レンズの焦点距離を特定する値ではありません')
+        layout.label(text='画角の方向切替では、換算mmは変わりません')
+        layout.separator()
+        layout.label(text='画角は中心配置に換算した基準値です')
+        if not camera.synced(context.scene, obj):
+            return
+        axis, _ = camera.auxiliary(context.scene, obj, include_horizon=False)
+        layout.label(text='光軸位置：左上0%、右下100%')
+        if s.frames:
+            frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
+            x, y = geometry.frame_coordinates(axis, frame, s.ratio_x / s.ratio_y)
+            layout.label(text=f'FRAME  X {x * 100:.2f}%  /  Y {y * 100:.2f}%', translate=False)
+        layout.label(text=f'出力  X {axis[0] / s.width * 100:.2f}%  /  Y {axis[1] / s.height * 100:.2f}%', translate=False)
+
+
 class CF_PT_view(CameraPanel, bpy.types.Panel):
     bl_label = 'ビュー操作'
     bl_idname = 'CF_PT_view'
@@ -123,7 +162,12 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
     bl_idname = 'CF_PT_frames'
 
     def draw_header_preset(self, context):
-        self.layout.prop(camera.active(context.scene).cf_camera, 'show_frame_names', text='名前')
+        obj = camera.active(context.scene)
+        row = self.layout.row(align=True)
+        row.prop(obj.cf_camera, 'show_frame_names', text='名前')
+        if obj.data.type == 'PERSP':
+            label = '長辺mm' if obj.cf_camera.lens_reference == 'LONG_EDGE' else '対角mm'
+            row.popover(panel='CF_PT_lens_details', text=label, icon='PREFERENCES')
 
     def draw(self, context):
         obj = camera.active(context.scene)
@@ -214,7 +258,7 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
         layout.operator('cf.export_psd', icon='EXPORT')
 
 
-CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_mask, CF_PT_path, CF_PT_export)
+CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_lens_details, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_mask, CF_PT_path, CF_PT_export)
 
 
 def register():

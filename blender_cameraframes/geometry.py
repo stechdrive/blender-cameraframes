@@ -9,7 +9,8 @@ from math import atan, ceil, cos, degrees, hypot, isfinite, pi, sin, sqrt
 
 AXIS_COLOR = (1.0, 0.35, 0.35)
 HORIZON_COLOR = (0.4, 1.0, 0.5)
-FULL_FRAME_REFERENCE = {'HORIZONTAL': 36.0, 'VERTICAL': 24.0, 'DIAGONAL': hypot(36.0, 24.0)}
+FULL_FRAME_LONG_EDGE = 36.0
+FULL_FRAME_DIAGONAL = hypot(36.0, 24.0)
 FRAME_COORD_LIMIT = 1000000.0
 FRAME_MIN_WIDTH = 1.0
 FRAME_MAX_WIDTH = 1000000.0
@@ -254,23 +255,35 @@ def clip_segment(a, b, width, height):
     return ((a[0] + low * dx, a[1] + low * dy), (a[0] + high * dx, a[1] + high * dy))
 
 
-def lens_from_span(span, axis='HORIZONTAL'):
-    """Full-frame equivalent and centered reference angle, not shifted edge rays."""
-    return (FULL_FRAME_REFERENCE[axis] / span, degrees(2 * atan(span / 2))) if isfinite(span) and span > 0 else (0, 0)
+def lens_from_spans(horizontal, vertical, diagonal, axis, reference):
+    """Independent focal reference and centered FOV, not shifted edge rays."""
+    span = {'HORIZONTAL': horizontal, 'VERTICAL': vertical, 'DIAGONAL': diagonal}[axis]
+    size, focal_span = ((FULL_FRAME_LONG_EDGE, max(horizontal, vertical)) if reference == 'LONG_EDGE'
+                        else (FULL_FRAME_DIAGONAL, diagonal))
+    focal = size / focal_span if isfinite(focal_span) and focal_span > 0 else 0.0
+    angle = degrees(2 * atan(span / 2)) if isfinite(span) and span > 0 else 0.0
+    return focal, angle
 
 
-def frame_lens(frame, ratio, bounds, width, height, axis='HORIZONTAL'):
+def frame_lens(frame, ratio, bounds, width, height, axis='HORIZONTAL', reference='LONG_EDGE'):
     l, r, b, t = bounds
-    w, h = frame.width / 2, frame.width / (2 * ratio)
+    dx, dy = (r - l) / width, (t - b) / height
+    c, s = cos(frame.angle), sin(frame.angle)
+    w, h = frame.width, frame.width / ratio
+    horizontal = (w * c * dx, w * s * dy)
+    vertical = (-h * s * dx, h * c * dy)
     # The diagonal runs from the FRAME's local bottom-left to top-right.
-    vector = {'HORIZONTAL': (w, 0), 'VERTICAL': (0, h), 'DIAGONAL': (w, -h)}[axis]
-    x, y = rotate(vector, frame.angle)
-    span = hypot(2 * x / width * (r - l), 2 * y / height * (t - b))
-    return lens_from_span(span, axis)
+    diagonal = hypot(horizontal[0] - vertical[0], horizontal[1] - vertical[1])
+    return lens_from_spans(hypot(*horizontal), hypot(*vertical), diagonal, axis, reference)
 
 
-def output_lens(bounds, axis='HORIZONTAL'):
+def output_lens(bounds, axis='HORIZONTAL', reference='LONG_EDGE'):
     """Use the full output gate; resolution percentage and render border do not crop it."""
     l, r, b, t = bounds
-    span = {'HORIZONTAL': r - l, 'VERTICAL': t - b, 'DIAGONAL': hypot(r - l, t - b)}[axis]
-    return lens_from_span(span, axis)
+    return lens_from_spans(r - l, t - b, hypot(r - l, t - b), axis, reference)
+
+
+def frame_coordinates(point, frame, ratio):
+    """Normalize a paper point in the FRAME's rotated, top-left-based coordinates."""
+    x, y = rotate((point[0] - frame.x, point[1] - frame.y), -frame.angle)
+    return 0.5 + x / frame.width, 0.5 + y / (frame.width / ratio)

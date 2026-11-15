@@ -258,15 +258,30 @@ def check_frame_focal(scene, obj):
         raise ValueError('撮影FRAMEを追加してください')
 
 
-def set_frame_focal(scene, obj, target, *, clamp=False):
-    """Change the actual lens through the FRAME's selected reference direction."""
+def frame_lens_values(scene, obj):
     from . import geometry
-    check_frame_focal(scene, obj)
     s = obj.cf_camera
-    if not math.isfinite(target) or target <= 0:
-        raise ValueError('目標35mm換算値には正の数を指定してください')
     frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
-    current = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height, s.frame_lens_axis)[0]
+    return geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj),
+                               s.width, s.height, s.frame_lens_axis, s.lens_reference)
+
+
+def set_frame_angle(scene, obj, target, *, clamp=False):
+    """Convert the selected angle into a lens scale, independently of the mm basis."""
+    check_frame_focal(scene, obj)
+    if not math.isfinite(target) or not 0 < target < 180:
+        raise ValueError('基準画角には0°より大きく180°より小さい値を指定してください')
+    focal, angle = frame_lens_values(scene, obj)
+    target_focal = focal * math.tan(math.radians(angle) / 2) / math.tan(math.radians(target) / 2)
+    return set_frame_focal(scene, obj, target_focal, clamp=clamp)
+
+
+def set_frame_focal(scene, obj, target, *, clamp=False):
+    """Change the actual lens through the FRAME's mm reference, regardless of FOV axis."""
+    check_frame_focal(scene, obj)
+    if not math.isfinite(target) or target <= 0:
+        raise ValueError('換算焦点距離には正の数を指定してください')
+    current = frame_lens_values(scene, obj)[0]
     if not math.isfinite(current) or current <= 0:
         raise ValueError('FRAMEの画角を計算できません')
     old = obj.data.lens
@@ -281,7 +296,7 @@ def set_frame_focal(scene, obj, target, *, clamp=False):
         return old
     try:
         obj.data.lens = value
-        actual = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height, s.frame_lens_axis)[0]
+        actual = frame_lens_values(scene, obj)[0]
         if not math.isfinite(actual) or abs(actual - target) > max(1e-4, target * 1e-5):
             raise ValueError('目標値に合わせられませんでした。カメラ設定を確認してください')
     except Exception:
