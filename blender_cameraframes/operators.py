@@ -1,8 +1,159 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
+from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 from . import camera, geometry, mask, overlay, properties
+
+
+_edits = set()
+FRAME_EDIT_FIELDS = ('x', 'y', 'width', 'angle', 'anchor', 'selected',
+                     'handle_mode', 'handle_in', 'handle_out')
+PAPER_PROJECTION = ('sensor_fit', 'sensor_width', 'shift_x', 'shift_y', 'ortho_scale')
+
+
+class EditSession:
+    """Own one preview's target and cleanup, without a timer or saved RNA state."""
+    def __init__(self, context, *, paper=False):
+        self.scene, self.obj = context.scene, camera.active(context.scene)
+        if any(edit.obj == self.obj for edit in _edits):
+            raise ValueError('このカメラでは別の編集操作が進行中です')
+        self.data = self.obj.data
+        self.window, self.area = context.window, context.area
+        self.paper, self.closed, self.dirty = paper, False, False
+        self.has_header = False
+        self.token = None
+        self.state = camera.snapshot(self.scene, self.obj) if paper else {'settings': camera.dump(self.obj.cf_camera)}
+        self.frame_refs = tuple(self.obj.cf_camera.frames)
+        self.views = overlay.capture_views(self.scene, self.obj) if paper else []
+        self.last_render = None
+        _edits.add(self)
+
+    def target_exists(self):
+        try:
+            return (not self.closed and bpy.data.scenes.get(self.scene.name) == self.scene
+                    and self.scene.objects.get(self.obj.name) == self.obj and self.obj.data == self.data
+                    and self.obj.cf_camera.uid == self.state['settings']['uid'])
+        except ReferenceError:
+            return False
+
+    def live_area(self):
+        try:
+            return (self.window and self.window in tuple(bpy.context.window_manager.windows)
+                    and self.area and self.area in tuple(self.window.screen.areas))
+        except ReferenceError:
+            return False
+
+    def current(self):
+        if not self.target_exists():
+            return False
+        try:
+            return (self.window.scene == self.scene and self.live_area() and self.area.type == 'VIEW_3D'
+                    and camera.active(self.scene) == self.obj and self.scene.camera == self.obj
+                    and len(self.obj.cf_camera.frames) == len(self.frame_refs)
+                    and all(a == b for a, b in zip(self.obj.cf_camera.frames, self.frame_refs)))
+        except ReferenceError:
+            return False
+
+    def header(self, text):
+        if self.live_area() and (text is not None or self.has_header):
+            self.area.header_text_set(text)
+            self.area.tag_redraw()
+        self.has_header = text is not None
+
+    def live_views(self):
+        """A captured area may now display another scene, camera or workspace."""
+        result = []
+        for view in self.views:
+            area, region, rv = view[:3]
+            try:
+                if any(window.scene == self.scene and area in tuple(window.screen.areas)
+                       for window in bpy.context.window_manager.windows):
+                    space = area.spaces.active
+                    if (area.type == 'VIEW_3D' and not space.region_quadviews and space.region_3d == rv
+                            and region in tuple(area.regions) and overlay.view_camera(space, self.scene) == self.obj):
+                        result.append(view)
+            except ReferenceError:
+                continue
+        return result
+
+    def restore_local(self):
+        """Restore only fields this operation changes, without rebuilding FRAME collections."""
+        s, saved = self.obj.cf_camera, self.state['settings']
+        fields = ('x', 'y') if self.paper else FRAME_EDIT_FIELDS
+        current_frames = set(s.frames)
+        for frame, values in zip(self.frame_refs, saved['frames']):
+            if frame not in current_frames:
+                continue
+            try:
+                for name in fields:
+                    setattr(frame, name, values[name])
+            except ReferenceError:
+                continue
+        if self.paper:
+            for name in ('width', 'height', 'origin', 'aspect_lock'):
+                setattr(s, name, saved[name])
+            for name in PAPER_PROJECTION:
+                setattr(self.data, name, self.state['projection'][name])
+        elif tuple(s.frames) == self.frame_refs:
+            s.frame_index = saved['frame_index']
+
+    def preview_paper(self, width, height, lock):
+        if not self.current():
+            self.cancel()
+            raise ValueError('操作対象が変わったため、用紙変更を取り消しました')
+        views = self.live_views()
+        self.restore_local()
+        camera.apply(self.scene, self.obj)
+        overlay.restore_views(views)
+        self.dirty = True
+        try:
+            margins = camera.resize(self.scene, self.obj, width, height)
+            self.obj.cf_camera.aspect_lock = lock
+            overlay.preserve_views(self.scene, self.obj, views, margins)
+        finally:
+            self.last_render = {key: getattr(self.scene.render, key) for key in camera.RENDER}
+
+    def cancel(self):
+        if self.closed:
+            return
+        try:
+            if self.dirty and self.target_exists():
+                # Restore shared output only while it still belongs to this
+                # camera and still contains the last values written by us.
+                restore_render = (self.paper and self.scene.camera == self.obj and
+                    self.last_render == {key: getattr(self.scene.render, key) for key in camera.RENDER})
+                views = self.live_views() if restore_render else []
+                self.restore_local()
+                if restore_render:
+                    for key, value in self.state['render'].items():
+                        setattr(self.scene.render, key, value)
+                    overlay.restore_views(views)
+        finally:
+            self.finish()
+
+    def finish(self):
+        if self.closed:
+            return
+        self.header(None)
+        overlay.end_frame_edit(self.token)
+        _edits.discard(self)
+        self.closed = True
+        self.state = self.last_render = None
+        self.frame_refs, self.views = (), []
+        self.obj = self.scene = self.data = self.window = self.area = self.token = None
+
+
+@persistent
+def cancel_edits(_unused=None):
+    for edit in tuple(_edits):
+        edit.cancel()
+
+
+def cancel_inactive_edits():
+    for edit in tuple(_edits):
+        if not edit.current():
+            edit.cancel()
 
 
 class CameraOperator:
@@ -119,19 +270,17 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
     width: IntProperty(name='幅 px', min=4, max=30000, default=1920)
     height: IntProperty(name='高さ px', min=4, max=30000, default=1080)
     lock: BoolProperty(name='縦横比を固定')
-    _state = None
-    _views = None
+    _edit = None
     _error = ''
 
     def invoke(self, context, event):
         obj = camera.active(context.scene)
         try:
             camera.check_resize(context.scene, obj)
+            self._edit = EditSession(context, paper=True)
         except ValueError as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
-        self._state = camera.snapshot(context.scene, obj)
-        self._views = overlay.capture_views(context.scene, obj)
         self.width, self.height, self.lock = obj.cf_camera.width, obj.cf_camera.height, obj.cf_camera.aspect_lock
         self._previous = (self.width, self.height)
         self._error = ''
@@ -147,36 +296,35 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
             self.layout.label(text=self._error, icon='ERROR')
 
     def check(self, context):
-        obj = camera.active(context.scene)
-        if not self._state or not obj:
+        edit = self._edit
+        if not edit or edit.closed:
+            self._error = '操作対象が変わったため、用紙変更を取り消しました'
             return False
         if self.lock:
-            base = self._state['settings']
+            base = edit.state['settings']
             if self.width != self._previous[0]:
                 self.width, self.height = geometry.locked_dimensions(self.width, self.height, base['width'], base['height'])
             elif self.height != self._previous[1]:
                 self.width, self.height = geometry.locked_dimensions(self.width, self.height, base['width'], base['height'], 'Y')
         self._previous = (self.width, self.height)
-        camera.restore(context.scene, obj, self._state)
-        overlay.restore_views(self._views)
         try:
-            margins = camera.resize(context.scene, obj, self.width, self.height)
-            overlay.preserve_views(context.scene, obj, self._views, margins)
-            obj.cf_camera.aspect_lock = self.lock
+            edit.preview_paper(self.width, self.height, self.lock)
             self._error = ''
         except ValueError as error:
             self._error = str(error)
         return True
 
     def execute(self, context):
-        obj = camera.active(context.scene)
-        if self._state:
+        if self._edit is not None:
             self.check(context)
             if self._error:
                 self.cancel(context)
                 self.report({'ERROR'}, self._error)
                 return {'CANCELLED'}
+            self._edit.finish()
+            self._edit = None
         else:
+            obj = camera.active(context.scene)
             views = overlay.capture_views(context.scene, obj)
             try:
                 margins = camera.resize(context.scene, obj, self.width, self.height)
@@ -187,10 +335,8 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
         return {'FINISHED'}
 
     def cancel(self, context):
-        obj = camera.active(context.scene)
-        if self._state and obj:
-            camera.restore(context.scene, obj, self._state)
-            overlay.restore_views(self._views)
+        if self._edit is not None:
+            self._edit.cancel()
 
 
 class CF_OT_fit(CameraOperator, bpy.types.Operator):
@@ -356,8 +502,14 @@ CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_sync_output, CF_OT_unregister, 
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
+    for handlers in (bpy.app.handlers.load_pre, bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre):
+        handlers.append(cancel_edits)
 
 
 def unregister():
+    cancel_edits()
+    for handlers in (bpy.app.handlers.load_pre, bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre):
+        if cancel_edits in handlers:
+            handlers.remove(cancel_edits)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

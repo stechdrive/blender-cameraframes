@@ -102,6 +102,8 @@ def selection_changed(source='selection'):
                 _follow(scene, scene.camera, view_layer, from_selection=True)
             handled.add(scene.as_pointer())
         remember_selection()
+        from . import operators
+        operators.cancel_inactive_edits()
         if handled:
             _redraw()
     finally:
@@ -190,12 +192,40 @@ def active(scene):
     return None
 
 
+def shared_between_scenes(obj):
+    """Check collection membership once per call, including excluded collections."""
+    if len(bpy.data.scenes) < 2:
+        return False
+    direct = {}
+    matches = 0
+    for scene in bpy.data.scenes:
+        pending, seen = [scene.collection], set()
+        while pending:
+            collection = pending.pop()
+            if collection in seen:
+                continue
+            seen.add(collection)
+            if collection not in direct:
+                # The native ID-reference check avoids RNA iteration through
+                # unrelated objects. Verify membership if a reference exists:
+                # an object-valued custom property is not a collection member.
+                direct[collection] = bool(collection.user_of_id(obj) and
+                                          collection.objects.get(obj.name) == obj)
+            if direct[collection]:
+                matches += 1
+                break
+            pending.extend(collection.children)
+        if matches > 1:
+            return True
+    return False
+
+
 def check_camera(obj):
     if not obj or obj.type != 'CAMERA':
         raise ValueError('カメラオブジェクトを選択してください')
     if obj.library or obj.override_library or obj.data.library or obj.data.override_library:
         raise ValueError('ローカルのカメラを使用してください（リンク・オーバーライドは未対応）')
-    if len(obj.users_scene) > 1:
+    if shared_between_scenes(obj):
         raise ValueError('複数シーンで共有されたカメラです。先にオブジェクトを複製してください')
     if obj.data.type not in {'PERSP', 'ORTHO'}:
         raise ValueError('透視または正投影のカメラを使用してください')
@@ -273,12 +303,16 @@ def set_frame_angle(scene, obj, target, *, clamp=False):
         raise ValueError('基準画角には0°より大きく180°より小さい値を指定してください')
     focal, angle = frame_lens_values(scene, obj)
     target_focal = focal * math.tan(math.radians(angle) / 2) / math.tan(math.radians(target) / 2)
-    return set_frame_focal(scene, obj, target_focal, clamp=clamp)
+    return _set_frame_focal(scene, obj, target_focal, clamp=clamp)
 
 
 def set_frame_focal(scene, obj, target, *, clamp=False):
     """Change the actual lens through the FRAME's mm reference, regardless of FOV axis."""
     check_frame_focal(scene, obj)
+    return _set_frame_focal(scene, obj, target, clamp=clamp)
+
+
+def _set_frame_focal(scene, obj, target, *, clamp):
     if not math.isfinite(target) or target <= 0:
         raise ValueError('換算焦点距離には正の数を指定してください')
     current = frame_lens_values(scene, obj)[0]

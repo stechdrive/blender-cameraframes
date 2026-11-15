@@ -3,7 +3,7 @@ from math import atan2, hypot, isfinite
 import bpy
 from bpy.props import EnumProperty
 from . import camera, geometry, overlay
-from .operators import CameraOperator, selected_indices
+from .operators import CameraOperator, EditSession, selected_indices
 
 
 def get_view(context, obj):
@@ -35,24 +35,32 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
     def description(cls, context, properties):
         return properties.bl_rna.properties['mode'].enum_items[properties.mode].description
 
+    @classmethod
+    def poll(cls, context):
+        obj = camera.active(context.scene)
+        return bool(overlay.guides_visible(context, obj) and overlay.view_target(context) is not None
+                    and any(frame.visible for frame in obj.cf_camera.frames))
+
     def invoke(self, context, event):
         self.obj = camera.active(context.scene)
         try:
             self.region, self.rv = get_view(context, self.obj)
+            self._edit = EditSession(context)
         except ValueError as error:
             self.report({'WARNING'}, str(error))
             return {'CANCELLED'}
         if not self.obj.cf_camera.frames:
+            self._edit.finish()
             return {'CANCELLED'}
         self.scene = context.scene
-        self.original = camera.dump(self.obj.cf_camera)
         self.box = overlay.rect(context.scene, self.obj, self.region, self.rv)
         if not self.box or self.box[2] <= self.box[0] or self.box[3] <= self.box[1]:
+            self._edit.finish()
             return {'CANCELLED'}
-        self._edit_token = overlay.begin_frame_edit(context)
+        self._edit.token = overlay.begin_frame_edit(context)
         self.started = False
         self._last_transform_error = None
-        context.area.header_text_set('Camera Frames: ドラッグ / G 移動 / S 拡縮 / R 回転 / A 基点 / Shift 微調整・複数選択 / Esc 取消')
+        self._edit.header('Camera Frames: ドラッグ / G 移動 / S 拡縮 / R 回転 / A 基点 / Shift 微調整・複数選択 / Esc 取消')
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and context.region.type == 'WINDOW':
             result = self.begin(context, event)
             if result:
@@ -91,7 +99,9 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                         hit = (i, 'MOVE')
                         break
             if hit is None:
-                return None
+                self.finish(context)
+                return {'CANCELLED'}
+            self._edit.dirty = True
             index, self.operation = hit
             s.frame_index = index
             if event.shift:
@@ -102,8 +112,14 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                 for f in s.frames:
                     f.selected = False
                 s.frames[index].selected = True
-        self.indices = selected_indices(s)
+        self.indices = [i for i in selected_indices(s) if s.frames[i].visible]
+        if not self.indices:
+            self.finish(context)
+            return {'CANCELLED'}
+        self._edit.dirty = True
         self.index = min(s.frame_index, len(s.frames) - 1)
+        if not s.frames[self.index].visible:
+            self.index = self.indices[0]
         f = s.frames[self.index]
         self.pivot = geometry.pivot(f, s.ratio_x / s.ratio_y)
         self.start = point
@@ -149,21 +165,21 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                     setattr(s.frames[i], name, value)
 
     def finish(self, context):
-        overlay.end_frame_edit(getattr(self, '_edit_token', None))
-        self._edit_token = None
-        if context.area:
-            context.area.header_text_set(None)
-            context.area.tag_redraw()
+        self._edit.finish()
+        self.frames = []
+        self.obj = self.scene = self.region = self.rv = None
 
     def cancel(self, context):
-        try:
-            camera.load(self.obj.cf_camera, self.original)
-        except ReferenceError:
-            pass
+        self._edit.cancel()
         self.finish(context)
 
     def modal(self, context, event):
-        if context.scene != self.scene or camera.active(context.scene) != self.obj:
+        if self._edit.closed:
+            self.finish(context)
+            return {'CANCELLED'}
+        if (not self._edit.current() or context.scene != self.scene
+                or not overlay.guides_visible(context, self.obj)
+                or (self.started and any(not self.obj.cf_camera.frames[i].visible for i in self.indices))):
             self.cancel(context)
             return {'CANCELLED'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
@@ -202,51 +218,50 @@ class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
         try:
             self.region, self.rv = get_view(context, self.obj)
             camera.check_resize(context.scene, self.obj)
+            self._edit = EditSession(context, paper=True)
         except ValueError as error:
             self.report({'WARNING'}, str(error))
             return {'CANCELLED'}
         self.scene = context.scene
-        self.state = camera.snapshot(context.scene, self.obj)
-        self.views = overlay.capture_views(context.scene, self.obj)
         self.box = overlay.rect(context.scene, self.obj, self.region, self.rv)
+        if not self.box or self.box[2] <= self.box[0] or self.box[3] <= self.box[1]:
+            self._edit.finish()
+            return {'CANCELLED'}
         self.start = None
-        context.area.header_text_set('用紙: ビュー内でドラッグ / Shift 微調整 / Esc 取消')
+        self._edit.header('用紙: ビュー内でドラッグ / Shift 微調整 / Esc 取消')
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
     def cancel(self, context):
-        try:
-            camera.restore(self.scene, self.obj, self.state)
-            overlay.restore_views(self.views)
-        except ReferenceError:
-            pass
-        context.area.header_text_set(None)
-        context.area.tag_redraw()
+        self._edit.cancel()
+        self.finish()
+
+    def finish(self):
+        self._edit.finish()
+        self.obj = self.scene = self.region = self.rv = None
 
     def modal(self, context, event):
-        if context.scene != self.scene or camera.active(context.scene) != self.obj or event.type in {'ESC', 'RIGHTMOUSE'}:
+        if (not self._edit.current() or context.scene != self.scene
+                or (event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS')):
             self.cancel(context)
             return {'CANCELLED'}
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             self.start = (event.mouse_x, event.mouse_y)
         elif self.start and event.type == 'MOUSEMOVE':
-            base = self.state['settings']
+            base = self._edit.state['settings']
             factor = 0.1 if event.shift else 1
             width = max(4, min(30000, round(base['width'] + (event.mouse_x - self.start[0]) * base['width'] / (self.box[2] - self.box[0]) * factor)))
             height = max(4, min(30000, round(base['height'] + (event.mouse_y - self.start[1]) * base['height'] / (self.box[3] - self.box[1]) * factor)))
             if base['aspect_lock']:
                 width, height = geometry.locked_dimensions(width, height, base['width'], base['height'])
-            camera.restore(self.scene, self.obj, self.state)
-            overlay.restore_views(self.views)
             try:
-                margins = camera.resize(self.scene, self.obj, width, height)
-                overlay.preserve_views(self.scene, self.obj, self.views, margins)
-                context.area.header_text_set(f'用紙: {width} × {height}px / Shift 微調整 / Esc 取消')
+                self._edit.preview_paper(width, height, base['aspect_lock'])
+                self._edit.header(f'用紙: {width} × {height}px / Shift 微調整 / Esc 取消')
             except ValueError as error:
-                context.area.header_text_set(str(error))
+                self._edit.header(str(error))
             context.area.tag_redraw()
         elif self.start and event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            context.area.header_text_set(None)
+            self.finish()
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
 
@@ -271,7 +286,7 @@ class CF_OT_edit_tool(CameraOperator, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'OBJECT' and overlay.view_target(context) is not None
+        return context.mode == 'OBJECT' and (overlay.frame_tool_active(context) or CF_OT_drag.poll(context))
 
     def execute(self, context):
         name = 'builtin.select_box' if overlay.frame_tool_active(context) else 'cf.edit_guides'
@@ -292,6 +307,13 @@ def register():
 
 def unregister():
     if not bpy.app.background:
+        # Hidden workspaces also retain their active tool across file saves.
+        for workspace in bpy.data.workspaces:
+            tool = workspace.tools.from_space_view3d_mode('OBJECT', create=False)
+            if tool and tool.idname == CF_WST_edit.bl_idname:
+                with bpy.context.temp_override(workspace=workspace, object=None,
+                                               active_object=None, edit_object=None):
+                    bpy.ops.wm.tool_set_by_id(name='builtin.select_box', space_type='VIEW_3D')
         bpy.utils.unregister_tool(CF_WST_edit)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

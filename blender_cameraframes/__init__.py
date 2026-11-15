@@ -3,7 +3,7 @@
 bl_info = {
     'name': 'Camera Frames',
     'author': 'Camera Frames contributors',
-    'version': (0, 1, 11),
+    'version': (0, 1, 12),
     'blender': (5, 2, 0),
     'location': '3D View > Sidebar > Camera Frames',
     'description': 'Preserve camera composition, edit shooting guides and export layered PSD',
@@ -28,5 +28,6 @@ def register():
 
 
 def unregister():
+    operators.cancel_edits()
     for module in reversed(MODULES):
         module.unregister()

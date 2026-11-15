@@ -22,6 +22,12 @@ _view_states = OrderedDict()
 _editing_areas = set()
 
 
+def guides_visible(context, obj):
+    space = context.space_data
+    return bool(obj and obj.cf_camera.show_guides and space and space.type == 'VIEW_3D'
+                and space.overlay.show_overlays)
+
+
 def frame_tool_active(context):
     tool = context.workspace.tools.from_space_view3d_mode(context.mode, create=False)
     return bool(tool and tool.idname == 'cf.edit_guides')
@@ -444,7 +450,7 @@ def draw():
     global _shader, _last_error
     context = bpy.context
     obj = camera.active(context.scene)
-    if not obj or not obj.cf_camera.show_guides or not editable_view(context, obj) or not camera.synced(context.scene, obj):
+    if not guides_visible(context, obj) or not editable_view(context, obj) or not camera.synced(context.scene, obj):
         return
     import gpu
     s = obj.cf_camera
