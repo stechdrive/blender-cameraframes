@@ -270,16 +270,15 @@ def make_frame_batches(s):
             for p in points:
                 markers.append(('BOX', p, (1, 1, 1)))
             if s.path_type == 'BEZIER' and s.show_path:
-                hi, ho = geometry.handles(s.frames, i)
-                ends = [(f.x + h[0], f.y + h[1]) for h in (hi, ho)]
-                batches.append((line_batch([[ends[0], (f.x, f.y), ends[1]]]), (0.8, 0.8, 0.8), 1))
+                ends = [(f.x + h[0], f.y + h[1]) for side, h in geometry.editable_handles(s.frames, i)]
+                batches.append((line_batch([[(f.x, f.y), end] for end in ends]), (0.8, 0.8, 0.8), 1))
                 for p in ends:
                     markers.append(('DIAMOND', p, (1, 0.75, 0.2)))
     return batches, labels, markers
 
 
 def make_path_batch(s):
-    return line_batch(geometry.trajectory(s.frames, s.ratio_x / s.ratio_y, s.path_type == 'BEZIER', s.corner_paths))
+    return line_batch(geometry.trajectory(s.frames, s.ratio_x / s.ratio_y, s.path_type == 'BEZIER', s.path_points))
 
 
 def make_auxiliary_batches(scene, obj):
@@ -302,8 +301,7 @@ def batches_for(scene, obj):
     path = None
     if s.show_path and len(s.frames) > 1:
         # Name, selection, visibility and colours do not change the trajectory.
-        path_key = (s.ratio_x, s.ratio_y, s.path_type, s.corner_paths,
-                    tuple((f[1:5], f[9:12]) for f in frames))
+        path_key = (s.path_points, geometry.motion_key(s.frames, s.ratio_x / s.ratio_y, s.path_type == 'BEZIER'))
         path = cached(_path_cache, path_key, make_path_batch, s)
     auxiliary = []
     if s.show_axis or (s.show_horizon and obj.data.type == 'PERSP'):

@@ -72,6 +72,34 @@ def initialize_frame_colors(settings):
         settings.next_frame_color = 0
 
 
+def get_handle_mode(self):
+    return self.get('handle_mode', 0)
+
+
+def set_handle_mode(self, value):
+    if value == get_handle_mode(self):
+        return
+    if value in {2, 3}:
+        frames = self.id_data.cf_camera.frames
+        index = next((i for i, f in enumerate(frames) if f == self), None)
+        if index is not None:
+            incoming, outgoing = geometry.handles(frames, index)
+            if value == 2:
+                incoming = incoming if index > 0 and any(incoming) else tuple(-v for v in outgoing)
+                outgoing = tuple(-v for v in incoming)
+            self.handle_in, self.handle_out = incoming, outgoing
+    self['handle_mode'] = value
+
+
+def get_path_points(self):
+    # Old files used a checkbox that added four corners to the centre path.
+    return self.get('path_points', 6 if self.corner_paths else 0)
+
+
+def set_path_points(self, value):
+    self['path_points'] = value
+
+
 class CFFrame(bpy.types.PropertyGroup):
     name: StringProperty(name='名前', default='FRAME')
     x: FloatProperty(name='X', default=0, min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT, update=redraw)
@@ -86,8 +114,12 @@ class CFFrame(bpy.types.PropertyGroup):
                          description='このFRAMEの枠線をPSDの独立レイヤーに書き出します。ビューの表示とは別に設定できます')
     color: FloatVectorProperty(name='色', size=3, subtype='COLOR', min=0, max=1, default=geometry.FRAME_COLORS[0],
                               get=get_frame_color, set=set_frame_color, update=redraw)
-    handle_mode: EnumProperty(name='ハンドル', items=[(s, n, '') for s, n in
-        [('AUTO', '自動'), ('CORNER', '角'), ('MIRRORED', '対称'), ('FREE', '自由')]], default='AUTO', update=redraw)
+    handle_mode: EnumProperty(name='接線', items=[
+        ('AUTO', '自動', '前後のFRAMEから滑らかな接線を計算します', 0),
+        ('CORNER', '角', 'このFRAMEの接線を縮め、前後の軌道を滑らかにつなぎません', 1),
+        ('MIRRORED', '対称', '前後のハンドルを同じ長さ・反対向きに連動させます', 2),
+        ('FREE', '自由', '前後のハンドルを別々に操作します', 3)],
+        default='AUTO', get=get_handle_mode, set=set_handle_mode, update=redraw)
     handle_in: FloatVectorProperty(name='入るハンドル', size=2, default=(-100, 0), update=redraw)
     handle_out: FloatVectorProperty(name='出るハンドル', size=2, default=(100, 0), update=redraw)
 
@@ -144,8 +176,20 @@ class CFCamera(bpy.types.PropertyGroup):
                              description='画面のマスク表示とは独立して、同じ対象・不透明度で別レイヤーへ出力します')
     ratio_x: FloatProperty(name='FRAME 横', default=16, min=0.01, max=1000, update=redraw)
     ratio_y: FloatProperty(name='縦', default=9, min=0.01, max=1000, update=redraw)
-    path_type: EnumProperty(name='軌道', items=[('LINE', '直線', ''), ('BEZIER', 'ベジェ', '')], default='BEZIER', update=redraw)
-    corner_paths: BoolProperty(name='四隅の軌道', default=False, update=redraw)
+    path_type: EnumProperty(name='軌道', items=[
+        ('LINE', '直線', 'FRAMEの中心を直線で結びます。接線ハンドルの設定は保持します'),
+        ('BEZIER', 'ベジェ', '接線ハンドルでFRAMEの中心の移動を曲線にします')], default='BEZIER', update=redraw)
+    corner_paths: BoolProperty(default=False, options={'HIDDEN'}, update=redraw)
+    path_points: EnumProperty(name='軌道位置', items=[
+        ('CENTER', '中央', 'FRAME中心の軌道を表示・出力します', 0),
+        ('CORNERS', '四隅', '四隅の軌道だけを表示・出力します', 1),
+        ('TOP_LEFT', '左上', '回転前の左上の角を追跡します', 2),
+        ('TOP_RIGHT', '右上', '回転前の右上の角を追跡します', 3),
+        ('BOTTOM_RIGHT', '右下', '回転前の右下の角を追跡します', 4),
+        ('BOTTOM_LEFT', '左下', '回転前の左下の角を追跡します', 5),
+        ('ALL', '中央＋四隅', '中央と四隅の5本を表示・出力します', 6)],
+        default='CENTER', get=get_path_points, set=set_path_points, update=redraw,
+        description='ビューとPSDに描く軌道の位置です。FRAMEの動きや通過範囲のマスクは変えません')
     show_path: BoolProperty(name='軌道を表示', default=True, update=redraw)
     export_path: BoolProperty(name='軌道をPSDへ', default=True)
     path_color: FloatVectorProperty(name='軌道色', size=3, subtype='COLOR', min=0, max=1, default=(1, 0.35, 0.08), update=redraw)

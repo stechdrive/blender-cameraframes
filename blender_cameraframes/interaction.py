@@ -79,12 +79,18 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             threshold = 9 * s.width / (self.box[2] - self.box[0])
             index = min(s.frame_index, len(s.frames) - 1)
             hit = None
-            f = s.frames[index]
-            if s.show_path and s.path_type == 'BEZIER' and f.visible:
-                for which, h in enumerate(geometry.handles(s.frames, index)):
-                    if hypot(point[0] - f.x - h[0], point[1] - f.y - h[1]) <= threshold:
-                        hit = (index, 'HANDLE_IN' if which == 0 else 'HANDLE_OUT')
-                        break
+            if s.show_path and s.path_type == 'BEZIER':
+                candidates = []
+                for i, f in enumerate(s.frames):
+                    if not f.visible or not (f.selected or i == index):
+                        continue
+                    for which, h in geometry.editable_handles(s.frames, i):
+                        distance = hypot(point[0] - f.x - h[0], point[1] - f.y - h[1])
+                        if distance <= threshold:
+                            candidates.append((distance, i != index, i, which))
+                if candidates:
+                    _, _, i, which = min(candidates)
+                    hit = (i, 'HANDLE_IN' if which == 0 else 'HANDLE_OUT')
             if hit is None:
                 for i in reversed(range(len(s.frames))):
                     f = s.frames[i]

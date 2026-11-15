@@ -228,14 +228,15 @@ class CF_PT_path(CameraPanel, bpy.types.Panel):
         s, layout = camera.active(context.scene).cf_camera, self.layout
         layout.prop(s, 'path_type')
         layout.prop(s, 'show_path')
-        layout.prop(s, 'corner_paths')
+        layout.prop(s, 'path_points')
         layout.prop(s, 'path_color')
         if s.frames and s.path_type == 'BEZIER':
             f = s.frames[min(s.frame_index, len(s.frames) - 1)]
             layout.prop(f, 'handle_mode')
             if f.handle_mode in {'MIRRORED', 'FREE'}:
-                layout.prop(f, 'handle_in')
-                if f.handle_mode == 'FREE':
+                if s.frame_index > 0 or f.handle_mode == 'MIRRORED':
+                    layout.prop(f, 'handle_in', text='接線' if f.handle_mode == 'MIRRORED' else '入るハンドル')
+                if f.handle_mode == 'FREE' and s.frame_index < len(s.frames) - 1:
                     layout.prop(f, 'handle_out')
         row = layout.row(align=True)
         row.prop(s, 'show_axis')

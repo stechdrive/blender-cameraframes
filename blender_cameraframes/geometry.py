@@ -134,6 +134,15 @@ def handles(frames, index):
     return (-dx / length * before, -dy / length * before), (dx / length * after, dy / length * after)
 
 
+def editable_handles(frames, index):
+    """Only tangents used by a preceding or following segment are editable."""
+    if len(frames) < 2:
+        return ()
+    pair = handles(frames, index)
+    return tuple((side, pair[side]) for side in (0, 1)
+                 if (index > 0 if side == 0 else index < len(frames) - 1))
+
+
 def cubic(a, b, c, d, t):
     u = 1 - t
     return tuple(u ** 3 * a[k] + 3 * u * u * t * b[k] +
@@ -206,11 +215,17 @@ def motion_for_key(key):
     return result
 
 
-def trajectory(frames, ratio, curved=True, corner_paths=False):
+PATH_POINTS = {'CENTER': (None,), 'CORNERS': (0, 1, 2, 3),
+               'TOP_LEFT': (0,), 'TOP_RIGHT': (1,), 'BOTTOM_RIGHT': (2,), 'BOTTOM_LEFT': (3,),
+               'ALL': (None, 0, 1, 2, 3)}
+
+
+def trajectory(frames, ratio, curved=True, points='CENTER'):
+    indices = PATH_POINTS[points]
     if len(frames) < 2:
-        return [[] for _ in range(5 if corner_paths else 1)]
+        return [[] for _ in indices]
     motion = motion_for_key(motion_key(frames, ratio, curved))
-    return [[p for p, corners in motion]] + ([[corners[k] for p, corners in motion] for k in range(4)] if corner_paths else [])
+    return [[p if index is None else corners[index] for p, corners in motion] for index in indices]
 
 
 def guide_layers(settings, *, axis, horizon):
@@ -222,7 +237,7 @@ def guide_layers(settings, *, axis, horizon):
             pts = corners(f, ratio)
             result.append((f.name, tuple(f.color), settings.line_width, [pts + pts[:1]]))
     if settings.export_path and len(settings.frames) > 1:
-        paths = trajectory(settings.frames, ratio, settings.path_type == 'BEZIER', settings.corner_paths)
+        paths = trajectory(settings.frames, ratio, settings.path_type == 'BEZIER', settings.path_points)
         result.append(('軌道', tuple(settings.path_color), settings.line_width, paths))
     if settings.export_axis and axis is not None and 0 <= axis[0] <= settings.width and 0 <= axis[1] <= settings.height:
         result.append(('光軸', AXIS_COLOR, settings.line_width, axis_strokes(axis)))
