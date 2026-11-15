@@ -64,9 +64,9 @@ FRAME一覧の順番が軌道の順番になります。**「軌道と補助線�
 
 用紙を上方向へ **1754×2480px** に広げ、下に始点のFRAME A、上に終点のFRAME Bを置いた例です。FRAMEはどちらも1536×864px。広場から建物の上部へPANするための、縦長の画像を用意できます。
 
-![縦長の用紙に始点・終点のFRAMEを配置し、軌道と通過範囲マスクを表示した画面](docs/images/vertical-pan.png)
+![縦長の用紙に始点・終点のFRAMEを配置し、軌道と通過範囲マスクを表示した画面](docs/images/vertical-pan-0.1.13.png)
 
-マスクは「全FRAMEの通過範囲」、不透明度55%です。移動中に必要な範囲を確認しながら、用紙の大きさを決められます。
+マスクは「全FRAMEの通過範囲」、不透明度55%です。軌道は左上の角を追って表示しています。移動中に必要な範囲を確認しながら、用紙の大きさを決められます。
 
 ## アイレベル・焦点距離・画角を確認する
 
@@ -81,9 +81,7 @@ FRAME一覧の順番が軌道の順番になります。**「軌道と補助線�
 
 画角はそれぞれ **水平・垂直・対角** から選べます。換算焦点距離は、FRAMEと出力それぞれの長辺を36mmとした値です。フルサイズの対角を基準にしたい場合は、「撮影FRAME」見出しの **「長辺mm」** から切り替えられます。
 
-![撮影FRAME、緑のアイレベル、焦点距離・画角の調整欄とFRAME外マスク](docs/images/frame-controls.png)
-
-画像は旧版の画面です。現在の数値欄は、上の表の2行にまとまっています。
+![撮影FRAMEとアイレベル、FRAMEと出力全体の焦点距離・画角を表示した現行パネル](docs/images/frame-controls-0.1.13.png)
 
 <details>
 <summary>実写や他のDCCと画角を合わせるとき</summary>
@@ -98,7 +96,7 @@ FRAME一覧の順番が軌道の順番になります。**「軌道と補助線�
 
 **「ガイドPSDを書き出す」** で、背景が透明なPSDを保存できます。FRAMEごとにレイヤーが分かれ、軌道・光軸・アイレベルも個別のレイヤーになります。FRAME名がレイヤー名になるので、撮影指示に合わせた名前を付けておけます。
 
-![縦PANのガイドPSDと、FRAME・軌道・光軸・アイレベル・マスクに分かれたレイヤー](docs/images/guide-psd-layers.png)
+![縦PANのガイドPSDと、FRAME・軌道・光軸・アイレベル・マスクに分かれたレイヤー](docs/images/guide-psd-layers-0.1.13.png)
 
 書き出すFRAMEは一覧の **「PSD」**、軌道・光軸・アイレベル・マスクは **「ガイドPSD」** の各チェックで選びます。光軸とアイレベルは、用紙内にあるものを書き出します。「マスクをPSDへ」をオンにすると、最下層にマスクが加わり、不透明度を画像編集ソフトでも調整できます。
 
@@ -135,7 +133,7 @@ PSDのキャンバスはBlenderの出力サイズにそろい、出力プロパ�
 | [Blenderからインストールする（推奨）](#install-repository) | Blender内で「更新」を押す |
 | [ZIPをダウンロードしてインストールする](#install-zip) | 新しいZIPをダウンロードして入れ替える |
 
-すでにZIPから導入している方は、[Blender内で更新できるように切り替える手順](#switch-from-zip)をご覧ください。画像中のバージョン番号は撮影時のものです。
+すでにZIPから導入している方は、[Blender内で更新できるように切り替える手順](#switch-from-zip)をご覧ください。
 
 まず、Blender上部の **「編集」→「プリファレンス…」** を開きます。
 
@@ -175,7 +173,7 @@ https://stechdrive.github.io/blender-cameraframes/index.json
 
 リポジトリのポップアップを閉じ、検索欄に **Camera Frames** と入力します。「利用可能」に出てきたCamera Framesの **「インストール」** を押します。
 
-![Camera Framesのインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-package.png)
+![Camera Framesのインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-package-0.1.13.png)
 
 完了したら、[インストール後の確認](#check-installation)へ進みます。
 
@@ -197,7 +195,7 @@ Blenderの **「編集」→「プリファレンス…」→「エクステン�
 
 ダウンロードしたZIPを **展開せずに** 選び、**「インストール後有効化」** をオンにして、右下の **「ディスクからインストール…」** を押します。
 
-![ZIPファイル名とインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-disk-file.png)
+![ZIPファイル名とインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-disk-file-0.1.13.png)
 
 ZIP版を更新するときも、同じ手順で新しいZIPを指定します。
 
@@ -227,7 +225,7 @@ ZIP版を更新するときも、同じ手順で新しいZIPを指定します�
 
 新しい版があると、Camera Framesの行に **「更新」** が表示されます。押すとインストールが始まり、完了後は左の矢印で開く詳細からバージョンを確認できます。
 
-![Camera Framesの更新ボタンと更新前後のバージョン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-update.png)
+![Camera Framesの更新ボタンと更新前後のバージョン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-update-0.1.13.png)
 
 <a id="switch-from-zip"></a>
 
@@ -241,7 +239,7 @@ ZIP版を一度アンインストールし、更新用リポジトリから入�
 4. [Blenderからインストールする手順](#install-repository)に沿って導入します。
 5. [有効化を確認](#check-installation)し、保存した `.blend` を開きます。
 
-![インストール済みのZIP版からアンインストールを選ぶ](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-remove-local.png)
+![インストール済みのZIP版からアンインストールを選ぶ](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-remove-local-0.1.13.png)
 
 ## ライセンス
 
