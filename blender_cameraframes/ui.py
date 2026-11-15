@@ -69,7 +69,10 @@ class CF_PT_main(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        layout.operator('cf.register_camera', icon='ADD')
+        row = layout.row(align=True)
+        row.operator('cf.register_camera', text='選択カメラを登録')
+        row.operator('cf.create_camera', text='新規作成', icon='ADD')
+        row.menu('CF_MT_camera_presets', text='', icon='PRESET')
         for i, entry in enumerate(scene.cf_scene.cameras):
             row = layout.row(align=True)
             obj = entry.camera
@@ -212,6 +215,8 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
         row.separator()
         row.operator('cf.frame', text='', icon='SELECT_EXTEND').action = 'SELECT_ALL'
         row.operator('cf.frame', text='', icon='SELECT_SET').action = 'DESELECT'
+        row.separator()
+        row.operator('cf.align_pixels', text='', icon='SNAP_INCREMENT')
         if not s.frames:
             draw_lens_values(layout, context.scene, obj)
             return

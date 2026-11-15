@@ -508,8 +508,45 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
+class CF_OT_align_pixels(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.align_pixels'
+    bl_label = 'ピクセルに合わせる'
+    bl_description = '内側の四辺を出力画像のピクセル境界に合わせます。寸法・回転・複数FRAMEの位置関係を保ちます'
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = camera.active(context.scene)
+        return bool(obj and camera.synced(context.scene, obj) and frames.selected_indices(obj.cf_camera)
+                    and not any(edit.obj == obj for edit in _edits))
+
+    def execute(self, context):
+        obj = camera.active(context.scene)
+        s = obj.cf_camera
+        indices = frames.selected_indices(s)
+        selected = [s.frames[i] for i in indices]
+        saved = [(f.x, f.y) for f in selected]
+        width, height = camera.output_size(context.scene, obj)
+        scale = (width / s.width, height / s.height)
+        try:
+            delta = geometry.pixel_alignment(selected, s.ratio_x / s.ratio_y, scale,
+                                              indices.index(frames.active_index(s)))
+            for f, (x, y) in zip(selected, saved):
+                f.x, f.y = x + delta[0], y + delta[1]
+            # RNA stores floats. Reject an unrepresentable result as a whole.
+            correction = geometry.pixel_alignment(selected, s.ratio_x / s.ratio_y, scale)
+            if any(abs(v * a) > 1e-4 for v, a in zip(correction, scale)):
+                raise ValueError('現在の座標精度ではピクセル境界に合わせられません')
+        except ValueError as error:
+            for f, (x, y) in zip(selected, saved):
+                f.x, f.y = x, y
+            self.report({'WARNING'}, str(error))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 CLASSES = (CF_OT_register, CF_OT_activate, CF_OT_sync_output, CF_OT_unregister, CF_OT_duplicate_camera,
-           CF_OT_paper, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export)
+           CF_OT_paper, CF_OT_fit, CF_OT_zoom, CF_OT_frame, CF_OT_export, CF_OT_align_pixels)
 
 
 def register():

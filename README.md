@@ -16,13 +16,28 @@
 
 ## 基本の使い方
 
-1. カメラオブジェクトを選び、**「選択カメラを登録」** を押します。
+1. カメラオブジェクトを選び、**「選択カメラを登録」** を押します。これからカメラを作る場合は、隣の **「新規作成」** から始められます。
 2. カメラビューで **「出力（用紙設定）」** を開き、固定基点を選んで用紙の幅・高さを調整します。
 3. **「撮影FRAME」** でFRAMEを追加し、位置・大きさ・回転を調整します。
 4. PANなどの撮影指示を作る場合はFRAMEを増やし、一覧の順番に沿って軌道をつなぎます。
 5. **「ガイドPSDを書き出す」** で保存します。Blenderでレンダリングした画像と重ねて使うときは、同じカメラ・出力サイズでそろえます。
 
 カメラごとの設定、FRAME、軌道は `.blend` に保存されます。
+
+## 用紙とFRAMEをセットにしてカメラを作る
+
+**「新規作成」** を押し、プリセットを選んで「OK」を押すと、撮影FRAME Aを配置したカメラが作られます。用紙とFRAMEのサイズは数値でも入力できます。
+
+| プリセット | 用紙サイズ | FRAMEの内寸 |
+| --- | --- | --- |
+| A4横・150dpi | 1754 × 1240px | 1536 × 864px |
+| A4横・200dpi | 2338 × 1654px | 2048 × 1152px |
+
+FRAMEの初期位置は用紙の中央です。タップ穴の余白を取りたいときなどは、**「中央から (px)」** の「縦」を増やすと下へ、「横」を増やすと右へずらせます。カメラはダイアログの「追加先」に表示されたコレクションに作られ、カメラビューへ切り替わります。
+
+![カメラの新規作成ダイアログと用紙プリセット](docs/images/create-camera-0.1.16.png)
+
+よく使う配置は、FRAMEを1枚選び、**「新規作成」の右隣のプリセットメニュー →「用紙と選択FRAMEをプリセットに保存」** から名前を付けて保存します。用紙サイズ、FRAMEの内寸・中央からの位置、PSDのPPIをまとめて再利用できます。保存したプリセットは、Blenderを終了した後やCamera Framesの更新後も使えます。同じメニューから不要なユーザープリセットを削除できます。
 
 ## 構図を保って、写る範囲を広げる
 
@@ -41,7 +56,11 @@
 - **1枚を選ぶ：** 一覧の行をクリックします。左端のチェックが、操作するFRAMEを示します。
 - **数値で合わせる：** 中心X・中心Y・幅・高さ・回転を入力します。幅と高さは縦横比を保って連動します。「縦横比（共通）」はカメラ内の全FRAMEに適用され、初期値は16:9です。
 - **まとめて動かす：** 一覧のチェック、またはビュー内のShiftクリックで複数選択します。数値入力とドラッグのどちらでも、位置関係を保って全体を変形できます。表示する数値と拡縮・回転の基点には、青い行のFRAMEを使います。
+- **水平・垂直に動かす：** Shiftを押しながらドラッグすると、動かし始めた方向に固定できます。移動中のX・Yで軸を指定し、同じキーでもう一度解除できます。Ctrlを押すと微調整になります。
+- **1pxずつ動かす：** 「ビューで編集」中に矢印キーを押します。Shiftを組み合わせると10pxずつ動きます。
 - **枠の外に基点を置く：** 基点もFRAMEも、用紙の外に置けます。
+
+水平・垂直の枠線をピクセルにそろえたいときは、FRAME一覧の下にある **「ピクセルに合わせる」** を押します。現在の出力倍率に合わせてFRAMEの位置を調整します。内寸・回転・複数FRAMEの位置関係を保って合わせられる場合に使えます。100%出力では、四辺をピクセル境界にそろえ、線幅を整数pxにすると、にじみのない枠線で書き出せます。斜めの枠線や小数位置の枠線にはアンチエイリアスがかかります。
 
 FRAMEを追加すると、赤・青・緑・黄・紫・水色の順に色が割り当てられます。色は個別にも変更できます。FRAME名は編集・操作中の対象に表示され、「撮影FRAME」見出しの **「名前」** で表示を切り替えられます。
 
@@ -67,7 +86,7 @@ FRAME一覧の順番が軌道の順番になります。**「軌道」** で「�
 
 用紙を上方向へ **1754×2480px** に広げ、下に始点のFRAME A、上に終点のFRAME Bを置いた例です。FRAMEはどちらも1536×864px。広場から建物の上部へPANするための、縦長の画像を用意できます。
 
-![縦長の用紙に始点・終点のFRAMEを配置し、軌道と通過範囲マスクを表示した画面](docs/images/vertical-pan-0.1.15.png)
+![縦長の用紙に始点・終点のFRAMEを配置し、軌道と通過範囲マスクを表示した画面](docs/images/vertical-pan-0.1.16.png)
 
 マスクは「全FRAMEの通過範囲」、不透明度55%です。軌道は左上の角を追って表示しています。移動中に必要な範囲を確認しながら、用紙の大きさを決められます。
 
@@ -84,7 +103,7 @@ FRAMEを1枚選び、**「mm」または「°」の数値をドラッグする�
 
 焦点距離はフルサイズ換算で表示します。画角はそれぞれ **水平・垂直・対角** から選べます。
 
-![撮影FRAMEとアイレベル、FRAMEと出力全体の焦点距離・画角を表示した現行パネル](docs/images/frame-controls-0.1.15.png)
+![撮影FRAMEとアイレベル、FRAMEと出力全体の焦点距離・画角を表示した現行パネル](docs/images/frame-controls-0.1.16.png)
 
 <details>
 <summary>実写や他のDCCと画角を合わせるとき</summary>
@@ -99,7 +118,7 @@ FRAMEを1枚選び、**「mm」または「°」の数値をドラッグする�
 
 **「ガイドPSDを書き出す」** で、背景が透明なPSDを保存できます。FRAMEごとにレイヤーが分かれ、軌道・光軸・アイレベルも個別のレイヤーになります。FRAME名がレイヤー名になるので、撮影指示に合わせた名前を付けておけます。
 
-![縦PANのガイドPSDと、FRAME・軌道・光軸・アイレベル・マスクに分かれたレイヤー](docs/images/guide-psd-layers-0.1.15.png)
+![縦PANのガイドPSDと、FRAME・軌道・光軸・アイレベル・マスクに分かれたレイヤー](docs/images/guide-psd-layers-0.1.16.png)
 
 書き出すFRAMEは一覧の **「PSD」**、軌道・光軸・アイレベル・マスクは **「ガイドPSD」** の各チェックで選びます。光軸とアイレベルは、用紙内にあるものを書き出します。「マスクをPSDへ」をオンにすると、最下層にマスクが加わり、不透明度を画像編集ソフトでも調整できます。
 
@@ -176,7 +195,7 @@ https://stechdrive.github.io/blender-cameraframes/index.json
 
 リポジトリのポップアップを閉じ、検索欄に **Camera Frames** と入力します。「利用可能」に出てきたCamera Framesの **「インストール」** を押します。
 
-![Camera Framesのインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-package-0.1.15.png)
+![Camera Framesのインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-repository-package-0.1.16.png)
 
 完了したら、[インストール後の確認](#check-installation)へ進みます。
 
@@ -198,7 +217,7 @@ Blenderの **「編集」→「プリファレンス…」→「エクステン�
 
 ダウンロードしたZIPを **展開せずに** 選び、**「インストール後有効化」** をオンにして、右下の **「ディスクからインストール…」** を押します。
 
-![ZIPファイル名とインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-disk-file-0.1.15.png)
+![ZIPファイル名とインストールボタン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-disk-file-0.1.16.png)
 
 ZIP版を更新するときも、同じ手順で新しいZIPを指定します。
 
@@ -228,7 +247,7 @@ ZIP版を更新するときも、同じ手順で新しいZIPを指定します�
 
 新しい版があると、Camera Framesの行に **「更新」** が表示されます。押すとインストールが始まり、完了後は左の矢印で開く詳細からバージョンを確認できます。
 
-![Camera Framesの更新ボタンと更新前後のバージョン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-update-0.1.15.png)
+![Camera Framesの更新ボタンと更新前後のバージョン](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-update-0.1.16.png)
 
 <a id="switch-from-zip"></a>
 
@@ -242,7 +261,7 @@ ZIP版を一度アンインストールし、更新用リポジトリから入�
 4. [Blenderからインストールする手順](#install-repository)に沿って導入します。
 5. [有効化を確認](#check-installation)し、保存した `.blend` を開きます。
 
-![インストール済みのZIP版からアンインストールを選ぶ](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-remove-local-0.1.15.png)
+![インストール済みのZIP版からアンインストールを選ぶ](https://raw.githubusercontent.com/stechdrive/blender-cameraframes/main/docs/images/install-remove-local-0.1.16.png)
 
 ## ライセンス
 

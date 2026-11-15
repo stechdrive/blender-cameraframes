@@ -57,6 +57,42 @@ def corners(frame, ratio):
             (rotate(p, frame.angle) for p in ((-w, -h), (w, -h), (w, h), (-w, h)))]
 
 
+def pixel_alignment(frames, ratio, scale, reference=0):
+    """One translation for the entire selection, in final output pixels.
+
+    The small tolerance absorbs RNA's float32 representation of quarter turns;
+    it is not an angle snap or permission to change dimensions.
+    """
+    tolerance = 1e-4
+    if not frames or not all(isfinite(v) and v > 0 for v in (*scale, ratio)):
+        raise ValueError('ピクセル合わせの対象がありません')
+    bounds = []
+    for f in frames:
+        quarter = round(f.angle / (pi / 2))
+        if abs(f.angle - quarter * pi / 2) > max(1, abs(f.angle)) * 6e-8:
+            raise ValueError('水平・垂直のFRAMEを選択してください。回転は変更しません')
+        points = [(x * scale[0], y * scale[1]) for x, y in corners(f, ratio)]
+        for a, b in zip(points, points[1:] + points[:1]):
+            if min(abs(a[0] - b[0]), abs(a[1] - b[1])) > .001:
+                raise ValueError('水平・垂直のFRAMEを選択してください。回転は変更しません')
+        w, h = (f.width, f.width / ratio) if quarter % 2 == 0 else (f.width / ratio, f.width)
+        left, right = (f.x - w / 2) * scale[0], (f.x + w / 2) * scale[0]
+        top, bottom = (f.y - h / 2) * scale[1], (f.y + h / 2) * scale[1]
+        if any(abs(v - round(v)) > tolerance for v in (right - left, bottom - top)):
+            raise ValueError('現在の出力倍率では内寸が整数pxになりません。寸法は変更しません')
+        bounds.append((left, top, right, bottom))
+    left, top = bounds[reference][:2]
+    delta = (round(left) - left, round(top) - top)
+    if any(abs(edge + delta[i % 2] - round(edge + delta[i % 2])) > tolerance
+           for box in bounds for i, edge in enumerate(box)):
+        raise ValueError('位置関係を保って一緒に合わせられません。FRAMEを1枚ずつ選択してください')
+    result = (delta[0] / scale[0], delta[1] / scale[1])
+    if any(abs(value + change) > FRAME_COORD_LIMIT for f in frames
+           for value, change in zip((f.x, f.y), result)):
+        raise ValueError('FRAMEの座標上限のため合わせられません')
+    return result
+
+
 def outward_edges(points):
     """Unit outward normals for a clockwise polygon in paper coordinates."""
     result = []

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from math import atan2, hypot, isfinite
 import bpy
-from bpy.props import EnumProperty
+from bpy.props import EnumProperty, IntProperty
 from . import camera, geometry, overlay, frames
 from .operators import CameraOperator, EditSession, selected_indices
 
@@ -26,7 +26,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
     bl_options = {'UNDO', 'BLOCKING'}
     mode: EnumProperty(items=[
         ('PICK', '選択して変形', '枠内をドラッグして移動、四隅で拡縮、黄色い点でベジェを編集します'),
-        ('MOVE', '移動', 'ビュー内でドラッグして選択FRAMEを移動します。Shiftで微調整、Escで取消'),
+        ('MOVE', '移動', 'ドラッグで移動。Shift: 水平・垂直に固定、X/Y: 軸指定、Ctrl: 微調整、Esc: 取消'),
         ('SCALE', '拡縮', 'ビュー内でドラッグして選択FRAMEを基点から拡縮します。Shiftで微調整、Escで取消'),
         ('ROTATE', '回転', 'ビュー内でドラッグして選択FRAMEを基点の周りに回転します。Shiftで微調整、Escで取消'),
         ('PIVOT', '基点移動', '拡縮・回転の基点をFRAMEや用紙の外にも移動できます。枠の位置は変わりません')], default='PICK')
@@ -59,6 +59,10 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             return {'CANCELLED'}
         self._edit.token = overlay.begin_frame_edit(context)
         self.started = False
+        self.axis = self.auto_axis = None
+        self.shift_click = None
+        self.dragged = False
+        self.drag_threshold = 4 * context.preferences.system.ui_scale
         self._last_transform_error = None
         self.show_status()
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and context.region.type == 'WINDOW':
@@ -76,8 +80,13 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         label = {'PICK': 'FRAMEを選択・ドラッグ', 'MOVE': 'FRAMEを移動', 'SCALE': 'FRAMEを拡縮',
                  'ROTATE': 'FRAMEを回転', 'PIVOT': '基点を移動',
                  'HANDLE_IN': '前のFRAME側のハンドルを編集', 'HANDLE_OUT': '次のFRAME側のハンドルを編集'}[mode]
+        axis = self.axis or self.auto_axis
+        if mode == 'MOVE' and axis:
+            label += '（水平）' if axis == 'X' else '（垂直）'
+        hint = (' / Shift: 軸固定 / X・Y: 軸指定 / Ctrl: 微調整' if mode in {'MOVE', 'PICK'}
+                else ' / Shift: 微調整')
         self._edit.header(label + ('中 / マウスを離す: 確定' if self.started else ' / ビュー内でドラッグ') +
-                          ' / Shift: 微調整・複数選択 / Esc: 取消')
+                          hint + ' / Esc: 取消')
 
     def begin(self, context, event):
         s = self.obj.cf_camera
@@ -118,10 +127,9 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             self._edit.dirty = True
             index, self.operation = hit
             if event.shift:
-                s.frames[index].selected = not s.frames[index].selected
-                self.finish(context)
-                return {'FINISHED'}
-            if self.operation in {'HANDLE_IN', 'HANDLE_OUT'} or not s.frames[index].selected:
+                self.shift_click = index
+                frames.select(s, (*selected_indices(s), index), active=index)
+            elif self.operation in {'HANDLE_IN', 'HANDLE_OUT'} or not s.frames[index].selected:
                 frames.select(s, (index,), active=index)
             else:
                 s['frame_index'] = index
@@ -134,6 +142,9 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         f = s.frames[self.index]
         self.pivot = geometry.pivot(f, s.ratio_x / s.ratio_y)
         self.start = point
+        self.start_mouse = (event.mouse_x, event.mouse_y)
+        self.last_point = point
+        self.move_delta = (0.0, 0.0)
         self.frames = [camera.dump(f) for f in s.frames]
         self.start_handles = geometry.handles(s.frames, self.index)
         self.started = True
@@ -145,8 +156,28 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         point = self.point(event)
         if not all(isfinite(v) for v in point):
             raise ValueError('マウス座標が無効です')
+        if not self.dragged:
+            self.dragged = hypot(event.mouse_x - self.start_mouse[0], event.mouse_y - self.start_mouse[1]) >= self.drag_threshold
+        if self.shift_click is not None and not self.dragged:
+            return
         fine = 0.1 if event.shift else 1.0
         dx, dy = (point[0] - self.start[0]) * fine, (point[1] - self.start[1]) * fine
+        if self.operation == 'MOVE':
+            fine = 0.1 if event.ctrl else 1.0
+            self.move_delta = tuple(d + (v - old) * fine for d, v, old in
+                                    zip(self.move_delta, point, self.last_point))
+            self.last_point = point
+            dx, dy = self.move_delta
+            if not event.shift:
+                self.auto_axis = None
+            elif self.auto_axis is None and self.dragged:
+                self.auto_axis = 'X' if abs(dx) >= abs(dy) else 'Y'
+            axis = self.axis or self.auto_axis
+            if axis == 'X':
+                dy = 0.0
+            elif axis == 'Y':
+                dx = 0.0
+            self.show_status()
         px, py = self.pivot
         if self.operation == 'SCALE':
             distance = hypot(self.start[0] - px, self.start[1] - py)
@@ -207,7 +238,9 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                 result = self.begin(context, event)
                 if result:
                     return result
-        elif event.type == 'MOUSEMOVE':
+        elif event.type in {'MOUSEMOVE', 'X', 'Y', 'LEFT_SHIFT', 'RIGHT_SHIFT', 'LEFT_CTRL', 'RIGHT_CTRL'}:
+            if event.type in {'X', 'Y'} and event.value == 'PRESS' and self.operation == 'MOVE':
+                self.axis = None if self.axis == event.type else event.type
             try:
                 self.update(event)
                 self._last_transform_error = None
@@ -217,6 +250,15 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                     self._last_transform_error = str(error)
             context.area.tag_redraw()
         elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            if self.shift_click is not None and not self.dragged:
+                s = self.obj.cf_camera
+                saved = self._edit.state['settings']
+                indices = {i for i, f in enumerate(saved['frames']) if f['selected'] and f['visible']}
+                if self.shift_click in indices:
+                    indices.remove(self.shift_click)
+                else:
+                    indices.add(self.shift_click)
+                frames.select(s, indices, active=self.shift_click)
             self.finish(context)
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
@@ -281,6 +323,32 @@ class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
+class CF_OT_nudge(CameraOperator, bpy.types.Operator):
+    bl_idname = 'cf.nudge_frame'
+    bl_label = 'FRAMEを1px移動'
+    bl_description = '選択FRAMEを用紙上で1px移動します。Shiftで10px。小数座標と位置関係を保ちます'
+    bl_options = {'UNDO'}
+    direction: EnumProperty(items=[(v, v, '') for v in ('LEFT', 'RIGHT', 'UP', 'DOWN')])
+    step: IntProperty(default=1, min=1, max=10)
+
+    @classmethod
+    def poll(cls, context):
+        obj = camera.active(context.scene)
+        return bool(overlay.frame_tool_active(context) and CF_OT_drag.poll(context)
+                    and frames.selected_indices(obj.cf_camera))
+
+    def execute(self, context):
+        s = camera.active(context.scene).cf_camera
+        indices = frames.selected_indices(s)
+        delta = {'LEFT': (-self.step, 0), 'RIGHT': (self.step, 0),
+                 'UP': (0, -self.step), 'DOWN': (0, self.step)}[self.direction]
+        saved = [dict(x=s.frames[i].x, y=s.frames[i].y) for i in indices]
+        values = geometry.transform_frames(saved, 'MOVE', (0, 0), delta=delta)
+        for i, value in zip(indices, values):
+            s.frames[i].x, s.frames[i].y = value['x'], value['y']
+        return {'FINISHED'}
+
+
 class CF_WST_edit(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
     bl_context_mode = 'OBJECT'
@@ -291,7 +359,11 @@ class CF_WST_edit(bpy.types.WorkSpaceTool):
     bl_keymap = (
         ('cf.drag_frame', {'type': 'LEFTMOUSE', 'value': 'PRESS'}, {'properties': [('mode', 'PICK')]}),
         ('cf.drag_frame', {'type': 'LEFTMOUSE', 'value': 'PRESS', 'shift': True}, {'properties': [('mode', 'PICK')]}),
-    )
+        ('cf.drag_frame', {'type': 'LEFTMOUSE', 'value': 'PRESS', 'ctrl': True}, {'properties': [('mode', 'PICK')]}),
+        ('cf.drag_frame', {'type': 'LEFTMOUSE', 'value': 'PRESS', 'shift': True, 'ctrl': True}, {'properties': [('mode', 'PICK')]}),
+    ) + tuple(('cf.nudge_frame', {'type': direction + '_ARROW', 'value': 'PRESS', 'shift': shift},
+               {'properties': [('direction', direction), ('step', 10 if shift else 1)]})
+              for direction in ('LEFT', 'RIGHT', 'UP', 'DOWN') for shift in (False, True))
 
 
 class CF_OT_edit_tool(CameraOperator, bpy.types.Operator):
@@ -310,7 +382,7 @@ class CF_OT_edit_tool(CameraOperator, bpy.types.Operator):
         return {'FINISHED'}
 
 
-CLASSES = (CF_OT_drag, CF_OT_paper_drag, CF_OT_edit_tool)
+CLASSES = (CF_OT_drag, CF_OT_paper_drag, CF_OT_edit_tool, CF_OT_nudge)
 
 
 def register():
