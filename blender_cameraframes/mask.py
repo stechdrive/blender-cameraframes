@@ -9,10 +9,15 @@ from math import ceil
 from . import geometry
 
 
+def has_source(settings):
+    return bool(settings.frames) and (settings.mask_source != 'ACTIVE' or settings.frame_index >= 0)
+
+
 def key_for(settings):
     frames = settings.frames
-    if settings.mask_source == 'ACTIVE' and frames:
-        frames = (frames[min(settings.frame_index, len(frames) - 1)],)
+    if settings.mask_source == 'ACTIVE':
+        index = settings.frame_index
+        frames = (frames[index],) if 0 <= index < len(frames) else ()
     return geometry.motion_key(frames, settings.ratio_x / settings.ratio_y, settings.path_type == 'BEZIER')
 
 

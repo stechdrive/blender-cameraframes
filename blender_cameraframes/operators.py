@@ -3,7 +3,7 @@ import bpy
 from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
-from . import camera, geometry, mask, overlay, properties
+from . import camera, geometry, mask, overlay, properties, frames
 
 
 _edits = set()
@@ -87,7 +87,10 @@ class EditSession:
                 continue
             try:
                 for name in fields:
-                    setattr(frame, name, values[name])
+                    if name == 'selected':
+                        frame[name] = values[name]
+                    else:
+                        setattr(frame, name, values[name])
             except ReferenceError:
                 continue
         if self.paper:
@@ -96,7 +99,7 @@ class EditSession:
             for name in PAPER_PROJECTION:
                 setattr(self.data, name, self.state['projection'][name])
         elif tuple(s.frames) == self.frame_refs:
-            s.frame_index = saved['frame_index']
+            s['frame_index'] = saved['frame_index']
 
     def preview_paper(self, width, height, lock):
         if not self.current():
@@ -371,10 +374,7 @@ class CF_OT_zoom(CameraOperator, bpy.types.Operator):
 
 
 def selected_indices(settings):
-    indices = [i for i, frame in enumerate(settings.frames) if frame.selected]
-    if not indices and settings.frames:
-        indices = [min(settings.frame_index, len(settings.frames) - 1)]
-    return indices
+    return frames.selected_indices(settings)
 
 
 class CF_OT_frame(CameraOperator, bpy.types.Operator):
@@ -386,9 +386,9 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
         ('ADD', '追加', '撮影FRAMEを追加します'),
         ('DUPLICATE', '複製', '選択したFRAMEを複製します'),
         ('REMOVE', '削除', '選択したFRAMEを削除します'),
-        ('UP', '上へ', '編集中のFRAMEを一覧の上へ移動します。軌道は一覧順につながります'),
-        ('DOWN', '下へ', '編集中のFRAMEを一覧の下へ移動します。軌道は一覧順につながります'),
-        ('SELECT_ALL', '全選択', 'すべてのFRAMEを選択します'),
+        ('UP', '上へ', '選択FRAMEを一覧の上へ移動します。軌道は一覧順につながります'),
+        ('DOWN', '下へ', '選択FRAMEを一覧の下へ移動します。軌道は一覧順につながります'),
+        ('SELECT_ALL', '全選択', '表示中のFRAMEをすべて選択します'),
         ('DESELECT', '選択解除', 'FRAMEの選択を解除します')])
 
     @classmethod
@@ -398,6 +398,8 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
     def execute(self, context):
         s = camera.active(context.scene).cf_camera
         indices = selected_indices(s)
+        if self.action in {'DUPLICATE', 'REMOVE', 'UP', 'DOWN'} and not indices:
+            return {'CANCELLED'}
         if self.action in {'ADD', 'DUPLICATE'}:
             count = len(indices) if self.action == 'DUPLICATE' and indices else 1
             if len(s.frames) + count > 128:
@@ -410,8 +412,8 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
                 templates = [dict(data, **offset) for data, offset in zip(templates, offsets)]
             if not s.frames:
                 s.next_frame_color = 0
-            for f in s.frames:
-                f.selected = False
+            frames.select(s, ())
+            added = []
             for data in templates or [None]:
                 f = s.frames.add()
                 if data:
@@ -424,19 +426,29 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
                 f.color = geometry.FRAME_COLORS[max(0, s.next_frame_color)]
                 s.next_frame_color = (max(0, s.next_frame_color) + 1) % len(geometry.FRAME_COLORS)
                 f.selected = True
-            s.frame_index = len(s.frames) - 1
+                added.append(len(s.frames) - 1)
+            frames.select(s, added, active=added[-1])
         elif self.action == 'REMOVE':
             for i in reversed(indices):
                 s.frames.remove(i)
-            s.frame_index = min(s.frame_index, max(0, len(s.frames) - 1))
+            frames.select(s, ())
         elif self.action in {'UP', 'DOWN'} and s.frames:
-            index = min(s.frame_index, len(s.frames) - 1)
-            dest = max(0, min(len(s.frames) - 1, index + (-1 if self.action == 'UP' else 1)))
-            s.frames.move(index, dest)
-            s.frame_index = dest
+            active_index = s.frame_index
+            moving = set(indices)
+            step = -1 if self.action == 'UP' else 1
+            for index in indices if step < 0 else reversed(indices):
+                dest = index + step
+                if 0 <= dest < len(s.frames) and dest not in moving:
+                    s.frames.move(index, dest)
+                    if active_index == index:
+                        active_index = dest
+                    elif active_index == dest:
+                        active_index = index
+                    moving.remove(index)
+                    moving.add(dest)
+            frames.select(s, moving, active=active_index)
         elif self.action in {'SELECT_ALL', 'DESELECT'}:
-            for f in s.frames:
-                f.selected = self.action == 'SELECT_ALL'
+            frames.select(s, range(len(s.frames)) if self.action == 'SELECT_ALL' else (), active=s.frame_index)
         if context.area:
             context.area.tag_redraw()
         return {'FINISHED'}
@@ -478,7 +490,7 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
             layers = [(name, color, weight * min(sx, sy), [[(x * sx, y * sy) for x, y in path] for path in paths])
                       for name, color, weight, paths in geometry.guide_layers(s, axis=axis, horizon=horizon)]
             mask_layer = None
-            if s.export_mask and s.frames:
+            if s.export_mask and mask.has_source(s):
                 triangles = mask.triangles(mask.key_for(s), s.width, s.height)
                 mask_layer = (tuple(tuple((x * sx, y * sy) for x, y in tri) for tri in triangles), s.mask_opacity / 100)
             if not layers and mask_layer is None:

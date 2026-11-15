@@ -2,7 +2,7 @@
 from math import atan2, hypot, isfinite
 import bpy
 from bpy.props import EnumProperty
-from . import camera, geometry, overlay
+from . import camera, geometry, overlay, frames
 from .operators import CameraOperator, EditSession, selected_indices
 
 
@@ -60,7 +60,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         self._edit.token = overlay.begin_frame_edit(context)
         self.started = False
         self._last_transform_error = None
-        self._edit.header('Camera Frames: ドラッグ / G 移動 / S 拡縮 / R 回転 / A 基点 / Shift 微調整・複数選択 / Esc 取消')
+        self.show_status()
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and context.region.type == 'WINDOW':
             result = self.begin(context, event)
             if result:
@@ -70,6 +70,14 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
 
     def point(self, event):
         return overlay.paper_point((event.mouse_x - self.region.x, event.mouse_y - self.region.y), self.box, self.obj.cf_camera)
+
+    def show_status(self):
+        mode = self.operation if self.started else self.mode
+        label = {'PICK': 'FRAMEを選択・ドラッグ', 'MOVE': 'FRAMEを移動', 'SCALE': 'FRAMEを拡縮',
+                 'ROTATE': 'FRAMEを回転', 'PIVOT': '基点を移動',
+                 'HANDLE_IN': '前のFRAME側のハンドルを編集', 'HANDLE_OUT': '次のFRAME側のハンドルを編集'}[mode]
+        self._edit.header(label + ('中 / マウスを離す: 確定' if self.started else ' / ビュー内でドラッグ') +
+                          ' / Shift: 微調整・複数選択 / Esc: 取消')
 
     def begin(self, context, event):
         s = self.obj.cf_camera
@@ -82,7 +90,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             if s.show_path and s.path_type == 'BEZIER':
                 candidates = []
                 for i, f in enumerate(s.frames):
-                    if not f.visible or not (f.selected or i == index):
+                    if not f.visible or not f.selected:
                         continue
                     for which, h in geometry.editable_handles(s.frames, i):
                         distance = hypot(point[0] - f.x - h[0], point[1] - f.y - h[1])
@@ -109,29 +117,27 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                 return {'CANCELLED'}
             self._edit.dirty = True
             index, self.operation = hit
-            s.frame_index = index
             if event.shift:
                 s.frames[index].selected = not s.frames[index].selected
                 self.finish(context)
                 return {'FINISHED'}
-            if not s.frames[index].selected:
-                for f in s.frames:
-                    f.selected = False
-                s.frames[index].selected = True
+            if self.operation in {'HANDLE_IN', 'HANDLE_OUT'} or not s.frames[index].selected:
+                frames.select(s, (index,), active=index)
+            else:
+                s['frame_index'] = index
         self.indices = [i for i in selected_indices(s) if s.frames[i].visible]
         if not self.indices:
             self.finish(context)
             return {'CANCELLED'}
         self._edit.dirty = True
-        self.index = min(s.frame_index, len(s.frames) - 1)
-        if not s.frames[self.index].visible:
-            self.index = self.indices[0]
+        self.index = s.frame_index
         f = s.frames[self.index]
         self.pivot = geometry.pivot(f, s.ratio_x / s.ratio_y)
         self.start = point
         self.frames = [camera.dump(f) for f in s.frames]
         self.start_handles = geometry.handles(s.frames, self.index)
         self.started = True
+        self.show_status()
         return None
 
     def update(self, event):
@@ -153,8 +159,10 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             if self.operation == 'PIVOT':
                 limit = geometry.FRAME_COORD_LIMIT
                 point = tuple(max(-limit, min(limit, v)) for v in point)
-                x, y = geometry.rotate((point[0] - saved['x'], point[1] - saved['y']), -saved['angle'])
-                f.anchor = (x * 2 / saved['width'], y * 2 / (saved['width'] * s.ratio_y / s.ratio_x))
+                for i in self.indices:
+                    saved = self.frames[i]
+                    x, y = geometry.rotate((point[0] - saved['x'], point[1] - saved['y']), -saved['angle'])
+                    s.frames[i].anchor = (x * 2 / saved['width'], y * 2 / (saved['width'] * s.ratio_y / s.ratio_x))
             else:
                 which = 0 if self.operation == 'HANDLE_IN' else 1
                 vector = (self.start_handles[which][0] + dx, self.start_handles[which][1] + dy)
@@ -194,6 +202,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         if not self.started:
             if event.type in {'G', 'S', 'R', 'A'} and event.value == 'PRESS':
                 self.mode = {'G': 'MOVE', 'S': 'SCALE', 'R': 'ROTATE', 'A': 'PIVOT'}[event.type]
+                self.show_status()
             if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
                 result = self.begin(context, event)
                 if result:
@@ -288,7 +297,7 @@ class CF_WST_edit(bpy.types.WorkSpaceTool):
 class CF_OT_edit_tool(CameraOperator, bpy.types.Operator):
     bl_idname = 'cf.edit_tool'
     bl_label = 'FRAME編集を切り替え'
-    bl_description = 'FRAME編集ツールを開始・終了します。編集時だけ操作ハンドルを表示します'
+    bl_description = 'ビュー内のFRAMEを直接選んで編集するツールを開始・終了します。Shiftクリックで複数選択できます'
 
     @classmethod
     def poll(cls, context):

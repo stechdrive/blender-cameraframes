@@ -264,7 +264,7 @@ def make_frame_batches(s):
         points = geometry.corners(f, ratio)
         color = tuple(f.color)
         batches.append((line_batch([points + points[:1]]), color, None))
-        if f.selected or i == s.frame_index:
+        if f.selected:
             labels.append((f.name, points[0], color))
             markers.append(('CROSS', geometry.pivot(f, ratio), (1, 1, 1)))
             for p in points:
@@ -375,7 +375,7 @@ def make_mask_texture(key, width, height):
 
 
 def draw_mask(s, box):
-    if not s.show_mask or not s.frames or s.mask_opacity <= 0:
+    if not s.show_mask or not mask.has_source(s) or s.mask_opacity <= 0:
         return
     import gpu
     from gpu_extras.batch import batch_for_shader

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
-from . import camera, geometry, overlay
+from . import camera, geometry, overlay, frames
 
 
 def lens_row(layout, settings, axis):
@@ -16,15 +16,24 @@ def draw_lens_values(layout, scene, obj):
         return
     s = obj.cf_camera
     error = None
+    header = layout.row(align=True)
+    header.label(text='フルサイズ換算')
+    header.popover(panel='CF_PT_lens_details', text='長辺基準' if s.lens_reference == 'LONG_EDGE' else '対角基準')
     if s.frames:
         focal, angle = lens_row(layout, s, 'frame_lens_axis')
-        try:
-            camera.check_frame_focal(scene, obj)
-        except ValueError as failure:
-            error = str(failure)
-        focal.enabled = angle.enabled = error is None
-        focal.prop(s, 'frame_focal', text='')
-        angle.prop(s, 'frame_angle', text='°')
+        single = len(frames.selected_indices(s)) == 1
+        if single:
+            try:
+                camera.check_frame_focal(scene, obj)
+            except ValueError as failure:
+                error = str(failure)
+        focal.enabled = angle.enabled = single and error is None
+        if frames.active(s) is not None:
+            focal.prop(s, 'frame_focal', text='')
+            angle.prop(s, 'frame_angle_ui', text='')
+        else:
+            focal.label(text='— mm')
+            angle.label(text='—°')
     focal, angle = lens_row(layout, s, 'output_lens_axis')
     mm, degrees = geometry.output_lens(camera.bounds(scene, obj), s.output_lens_axis, s.lens_reference)
     number = f'{mm:.2f}' if mm < 1e6 else f'{mm:.4g}'
@@ -38,7 +47,9 @@ def draw_lens_values(layout, scene, obj):
 class CF_UL_frames(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         row = layout.row(align=True)
-        row.prop(item, 'selected', text='')
+        selection = row.row(align=True)
+        selection.enabled = item.visible
+        selection.prop(item, 'selected', text='')
         row.prop(item, 'name', text='', emboss=False)
         row.prop(item, 'visible', text='', icon='HIDE_OFF' if item.visible else 'HIDE_ON', emboss=False)
         row.prop(item, 'export', text='PSD')
@@ -50,6 +61,10 @@ class CF_PT_main(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'Camera Frames'
+
+    def draw_header_preset(self, context):
+        if camera.active(context.scene):
+            self.layout.popover(panel='CF_PT_guide_style', text='', icon='PREFERENCES')
 
     def draw(self, context):
         layout = self.layout
@@ -79,7 +94,11 @@ class CF_PT_main(bpy.types.Panel):
             else:
                 box.label(text='用紙と出力設定が異なります', icon='ERROR')
                 box.operator('cf.sync_output')
-        layout.prop(s, 'show_guides')
+        row = layout.split(factor=0.27, align=True)
+        row.prop(s, 'show_guides', text='ガイド')
+        rest = row.split(factor=0.37, align=True)
+        rest.prop(s, 'show_axis')
+        rest.prop(s, 'show_horizon')
 
 
 class CameraPanel:
@@ -91,6 +110,19 @@ class CameraPanel:
     @classmethod
     def poll(cls, context):
         return camera.active(context.scene) is not None
+
+
+class CF_PT_guide_style(bpy.types.Panel):
+    bl_label = 'ガイドの線幅'
+    bl_idname = 'CF_PT_guide_style'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'HEADER'
+    bl_ui_units_x = 12
+
+    def draw(self, context):
+        obj = camera.active(context.scene)
+        if obj:
+            self.layout.prop(obj.cf_camera, 'line_width')
 
 
 class CF_PT_lens_details(bpy.types.Panel):
@@ -108,18 +140,16 @@ class CF_PT_lens_details(bpy.types.Panel):
     def draw(self, context):
         obj = camera.active(context.scene)
         s, layout = obj.cf_camera, self.layout
-        layout.label(text='FRAME・出力に共通の換算基準')
+        layout.label(text='フルサイズ換算の基準（共通）')
         layout.prop(s, 'lens_reference', text='')
-        layout.label(text='実レンズの焦点距離を特定する値ではありません')
-        layout.label(text='画角の方向切替では、換算mmは変わりません')
         layout.separator()
-        layout.label(text='画角は中心配置に換算した基準値です')
+        layout.label(text='画角は光軸を中央に置いた場合の値です')
         if not camera.synced(context.scene, obj):
             return
         axis, _ = camera.auxiliary(context.scene, obj, include_horizon=False)
         layout.label(text='光軸位置：左上0%、右下100%')
-        if s.frames:
-            frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
+        frame = frames.active(s)
+        if frame is not None:
             x, y = geometry.frame_coordinates(axis, frame, s.ratio_x / s.ratio_y)
             layout.label(text=f'FRAME  X {x * 100:.2f}%  /  Y {y * 100:.2f}%', translate=False)
         layout.label(text=f'出力  X {axis[0] / s.width * 100:.2f}%  /  Y {axis[1] / s.height * 100:.2f}%', translate=False)
@@ -154,7 +184,7 @@ class CF_PT_paper(CameraPanel, bpy.types.Panel):
         layout.prop(s, 'aspect_lock')
         row = layout.row(align=True)
         row.operator('cf.paper_size', text='数値で変更')
-        row.operator('cf.drag_paper', text='ドラッグ')
+        row.operator('cf.drag_paper', text='ドラッグで変更')
 
 
 class CF_PT_frames(CameraPanel, bpy.types.Panel):
@@ -164,46 +194,57 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
     def draw_header_preset(self, context):
         obj = camera.active(context.scene)
         row = self.layout.row(align=True)
+        count = len(frames.selected_indices(obj.cf_camera))
+        if count != 1:
+            row.label(text=f'{count}枚選択' if count else '未選択')
         row.prop(obj.cf_camera, 'show_frame_names', text='名前')
-        if obj.data.type == 'PERSP':
-            label = '長辺mm' if obj.cf_camera.lens_reference == 'LONG_EDGE' else '対角mm'
-            row.popover(panel='CF_PT_lens_details', text=label, icon='PREFERENCES')
 
     def draw(self, context):
         obj = camera.active(context.scene)
         s, layout = obj.cf_camera, self.layout
+        selected = frames.selected_indices(s)
         layout.template_list('CF_UL_frames', '', s, 'frames', s, 'frame_index', rows=3)
         row = layout.row(align=True)
         for action, icon in (('ADD', 'ADD'), ('DUPLICATE', 'DUPLICATE'), ('REMOVE', 'REMOVE'), ('UP', 'TRIA_UP'), ('DOWN', 'TRIA_DOWN')):
-            row.operator('cf.frame', text='', icon=icon).action = action
-        row = layout.row(align=True)
-        row.operator('cf.frame', text='全選択').action = 'SELECT_ALL'
-        row.operator('cf.frame', text='選択解除').action = 'DESELECT'
+            button = row.row(align=True)
+            button.enabled = action == 'ADD' or bool(selected)
+            button.operator('cf.frame', text='', icon=icon).action = action
+        row.separator()
+        row.operator('cf.frame', text='', icon='SELECT_EXTEND').action = 'SELECT_ALL'
+        row.operator('cf.frame', text='', icon='SELECT_SET').action = 'DESELECT'
         if not s.frames:
             draw_lens_values(layout, context.scene, obj)
             return
         editing = overlay.frame_tool_active(context)
-        layout.operator('cf.edit_tool', text='FRAME編集を終了' if editing else 'FRAMEを編集',
+        layout.operator('cf.edit_tool', text='ビューでの編集を終了' if editing else 'ビューで編集',
                         icon='RESTRICT_SELECT_OFF', depress=editing)
         row = layout.row(align=True)
-        for mode, label in (('MOVE', '移動'), ('SCALE', '拡縮'), ('ROTATE', '回転'), ('PIVOT', '基点')):
+        row.enabled = bool(selected)
+        for mode, label in (('MOVE', '移動'), ('SCALE', '拡縮'), ('ROTATE', '回転'), ('PIVOT', '基点移動')):
             row.operator('cf.drag_frame', text=label).mode = mode
-        f = s.frames[min(s.frame_index, len(s.frames) - 1)]
         col = layout.column(align=True)
-        col.prop(f, 'x')
-        col.prop(f, 'y')
-        col.prop(f, 'width')
-        col.prop(f, 'angle')
-        col.prop(f, 'color')
-        row = layout.row(align=True)
-        row.prop(s, 'ratio_x')
-        row.prop(s, 'ratio_y')
+        col.enabled = bool(selected)
+        row = col.row(align=True)
+        row.prop(s, 'edit_x')
+        row.prop(s, 'edit_y')
+        row = col.row(align=True)
+        row.prop(s, 'edit_width')
+        row.prop(s, 'edit_height')
+        row = col.split(factor=0.72, align=True)
+        row.prop(s, 'edit_angle')
+        row.prop(s, 'edit_color', text='')
+        row = layout.split(factor=0.46, align=True)
+        row.label(text='縦横比（共通）')
+        values = row.row(align=True)
+        values.prop(s, 'ratio_x', text='')
+        values.prop(s, 'ratio_y', text=':')
         if camera.synced(context.scene, obj):
             if obj.data.type == 'PERSP':
                 draw_lens_values(layout, context.scene, obj)
             elif obj.data.type == 'ORTHO':
                 l, r, b, t = camera.bounds(context.scene, obj)
-                layout.label(text=f'正投影 幅 {f.width / s.width * (r - l):.4g}')
+                f = frames.active(s)
+                layout.label(text=f'正投影 幅 {f.width / s.width * (r - l):.4g}' if f else '正投影 幅 —')
 
 
 class CF_PT_mask(CameraPanel, bpy.types.Panel):
@@ -220,7 +261,7 @@ class CF_PT_mask(CameraPanel, bpy.types.Panel):
 
 
 class CF_PT_path(CameraPanel, bpy.types.Panel):
-    bl_label = '軌道と補助線'
+    bl_label = '軌道'
     bl_idname = 'CF_PT_path'
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -230,17 +271,16 @@ class CF_PT_path(CameraPanel, bpy.types.Panel):
         layout.prop(s, 'show_path')
         layout.prop(s, 'path_points')
         layout.prop(s, 'path_color')
-        if s.frames and s.path_type == 'BEZIER':
-            f = s.frames[min(s.frame_index, len(s.frames) - 1)]
-            layout.prop(f, 'handle_mode')
+        f = frames.active(s)
+        if len(s.frames) > 1 and s.path_type == 'BEZIER' and f is not None:
+            col = layout.column(align=True)
+            col.enabled = len(frames.selected_indices(s)) == 1
+            col.prop(f, 'handle_mode')
             if f.handle_mode in {'MIRRORED', 'FREE'}:
                 if s.frame_index > 0 or f.handle_mode == 'MIRRORED':
-                    layout.prop(f, 'handle_in', text='接線' if f.handle_mode == 'MIRRORED' else '入るハンドル')
+                    col.prop(f, 'handle_in', text='ハンドル' if f.handle_mode == 'MIRRORED' else '前のFRAME側')
                 if f.handle_mode == 'FREE' and s.frame_index < len(s.frames) - 1:
-                    layout.prop(f, 'handle_out')
-        row = layout.row(align=True)
-        row.prop(s, 'show_axis')
-        row.prop(s, 'show_horizon')
+                    col.prop(f, 'handle_out')
 
 
 class CF_PT_export(CameraPanel, bpy.types.Panel):
@@ -250,7 +290,6 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
     def draw(self, context):
         obj = camera.active(context.scene)
         s, layout = obj.cf_camera, self.layout
-        layout.prop(s, 'line_width')
         layout.prop(s, 'ppi', text='PSDのPPI')
         layout.prop(s, 'export_path')
         layout.prop(s, 'export_axis')
@@ -259,7 +298,7 @@ class CF_PT_export(CameraPanel, bpy.types.Panel):
         layout.operator('cf.export_psd', icon='EXPORT')
 
 
-CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_lens_details, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_mask, CF_PT_path, CF_PT_export)
+CLASSES = (CF_UL_frames, CF_PT_main, CF_PT_guide_style, CF_PT_lens_details, CF_PT_view, CF_PT_paper, CF_PT_frames, CF_PT_mask, CF_PT_path, CF_PT_export)
 
 
 def register():

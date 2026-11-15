@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
-from . import geometry
-from math import atan, degrees
+from . import geometry, frames
+from math import atan, degrees, radians
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty,
                        FloatVectorProperty, IntProperty, PointerProperty, StringProperty)
 
@@ -26,7 +26,7 @@ def set_view_scale(self, value):
 def lens_values(self):
     from . import camera
     obj, scene = self.id_data, bpy.context.scene
-    if not scene or not self.frames or obj.type != 'CAMERA' or obj.data.type != 'PERSP' or not camera.synced(scene, obj):
+    if not scene or frames.active(self) is None or obj.type != 'CAMERA' or obj.data.type != 'PERSP' or not camera.synced(scene, obj):
         return 0.0, 0.0
     return camera.frame_lens_values(scene, obj)
 
@@ -47,6 +47,12 @@ def get_frame_angle(self):
 def set_frame_angle(self, value):
     from . import camera
     camera.set_frame_angle(bpy.context.scene, self.id_data, value, clamp=True)
+
+
+def visibility_changed(self, context):
+    if not self.visible:
+        frames.set_selected(self, False)
+    redraw(self, context)
 
 
 def get_frame_color(self):
@@ -107,21 +113,22 @@ class CFFrame(bpy.types.PropertyGroup):
     width: FloatProperty(name='幅 px', default=1536, min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH, update=redraw)
     angle: FloatProperty(name='回転', subtype='ANGLE', update=redraw)
     anchor: FloatVectorProperty(name='基点', size=2, default=(0, 0), update=redraw)
-    selected: BoolProperty(name='選択', default=False, update=redraw)
-    visible: BoolProperty(name='ビューに表示', default=True, update=redraw,
+    selected: BoolProperty(name='選択', default=False, get=frames.get_selected, set=frames.set_selected, update=redraw,
+                          description='操作するFRAMEを選びます。チェックで複数選択、行のクリックで1枚選択します')
+    visible: BoolProperty(name='ビューに表示', default=True, update=visibility_changed,
                           description='このFRAMEの枠線をビューに表示します。PSDの出力設定は変えません')
     export: BoolProperty(name='PSDに書き出す', default=True,
                          description='このFRAMEの枠線をPSDの独立レイヤーに書き出します。ビューの表示とは別に設定できます')
     color: FloatVectorProperty(name='色', size=3, subtype='COLOR', min=0, max=1, default=geometry.FRAME_COLORS[0],
                               get=get_frame_color, set=set_frame_color, update=redraw)
-    handle_mode: EnumProperty(name='接線', items=[
+    handle_mode: EnumProperty(name='ハンドル', items=[
         ('AUTO', '自動', '前後のFRAMEから滑らかな接線を計算します', 0),
-        ('CORNER', '角', 'このFRAMEの接線を縮め、前後の軌道を滑らかにつなぎません', 1),
+        ('CORNER', '折れ', 'このFRAMEで軌道を折り、前後のハンドルを中心に縮めます', 1),
         ('MIRRORED', '対称', '前後のハンドルを同じ長さ・反対向きに連動させます', 2),
         ('FREE', '自由', '前後のハンドルを別々に操作します', 3)],
         default='AUTO', get=get_handle_mode, set=set_handle_mode, update=redraw)
-    handle_in: FloatVectorProperty(name='入るハンドル', size=2, default=(-100, 0), update=redraw)
-    handle_out: FloatVectorProperty(name='出るハンドル', size=2, default=(100, 0), update=redraw)
+    handle_in: FloatVectorProperty(name='前のFRAME側', size=2, default=(-100, 0), update=redraw)
+    handle_out: FloatVectorProperty(name='次のFRAME側', size=2, default=(100, 0), update=redraw)
 
 
 class CFCamera(bpy.types.PropertyGroup):
@@ -140,11 +147,29 @@ class CFCamera(bpy.types.PropertyGroup):
     next_frame_color: IntProperty(default=-1, min=-1, max=len(geometry.FRAME_COLORS)-1, options={'HIDDEN'})
     show_frame_names: BoolProperty(name='名前', default=True, update=redraw,
                                   description='FRAME編集・操作中に、選択または操作対象の名前を表示します。オフにすると常に非表示です')
-    frame_index: IntProperty(default=0, min=0, update=redraw)
+    frame_index: IntProperty(default=-1, min=-1, get=frames.active_index, set=frames.select_row, update=redraw)
+    edit_x: FloatProperty(name='中心X', min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT,
+        get=lambda s: frames.value(s, 'x'), set=lambda s, v: frames.set_value(s, 'x', v), update=redraw, options={'SKIP_SAVE'},
+        description='用紙左上からの中心X座標（px）。複数選択では位置関係を保って全体を移動します')
+    edit_y: FloatProperty(name='中心Y', min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT,
+        get=lambda s: frames.value(s, 'y'), set=lambda s, v: frames.set_value(s, 'y', v), update=redraw, options={'SKIP_SAVE'},
+        description='用紙左上からの中心Y座標（px）。下向きが正。複数選択では位置関係を保って全体を移動します')
+    edit_width: FloatProperty(name='幅', min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH,
+        get=lambda s: frames.value(s, 'width'), set=lambda s, v: frames.set_value(s, 'width', v), update=redraw, options={'SKIP_SAVE'},
+        description='FRAMEの幅（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
+    edit_height: FloatProperty(name='高さ', min=0.00001, max=1e11,
+        get=lambda s: frames.value(s, 'height'), set=lambda s, v: frames.set_value(s, 'height', v), update=redraw, options={'SKIP_SAVE'},
+        description='FRAMEの高さ（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
+    edit_angle: FloatProperty(name='回転', subtype='ANGLE',
+        get=lambda s: frames.value(s, 'angle'), set=lambda s, v: frames.set_value(s, 'angle', v), update=redraw, options={'SKIP_SAVE'},
+        description='FRAMEの回転角度。複数選択では青い行のFRAMEの基点を中心に全体を同じ角度だけ回転します')
+    edit_color: FloatVectorProperty(name='色', size=3, subtype='COLOR', min=0, max=1,
+        get=lambda s: frames.value(s, 'color'), set=lambda s, v: frames.set_value(s, 'color', v), update=redraw, options={'SKIP_SAVE'},
+        description='選択したFRAMEの枠線の色を変更します')
     lens_reference: EnumProperty(name='換算mmの基準', default='LONG_EDGE', options=set(), update=redraw,
         description='FRAMEと出力に共通のmm換算基準。表示だけを変更し、レンズ・構図・画角は変えません',
-        items=[('LONG_EDGE', '長辺36mm', 'それぞれの長辺を36mmに対応させた画の広さの目安。実レンズの焦点距離とは異なります'),
-               ('DIAGONAL', '対角43.27mm', 'それぞれの対角を36×24mmフルサイズの対角に対応させた換算です')])
+        items=[('LONG_EDGE', '長辺基準', 'FRAME・出力それぞれの長辺をフルサイズの長辺36mmに合わせて換算します'),
+               ('DIAGONAL', '対角基準', 'FRAME・出力それぞれの対角を36×24mmフルサイズの対角に合わせて換算します')])
     # Keep the saved enum identifiers/order from 0.1.10; they now select FOV only.
     frame_lens_axis: EnumProperty(name='FRAMEの画角方向', default='HORIZONTAL', options=set(), update=redraw,
         description='FRAMEの基準画角を確認する方向。切替は換算mm・レンズ・構図を変えません',
@@ -161,24 +186,30 @@ class CFCamera(bpy.types.PropertyGroup):
     frame_focal: FloatProperty(name='換算焦点距離 mm', default=50, min=0.000001, max=1e12,
                               step=10, precision=2, subtype='DISTANCE_CAMERA', unit='CAMERA', options={'SKIP_SAVE'},
                               get=get_frame_focal, set=set_frame_focal, update=redraw,
-                              description='標準は長辺36mm換算。見出しの詳細で対角換算に変更できます。画角の方向切替では変わりません。ドラッグや数値入力でカメラの焦点距離を直接変更します')
+                              description='カメラの焦点距離を変更します。選択した1枚のFRAMEを基準にフルサイズ換算で指定できます')
     frame_angle: FloatProperty(name='基準画角 °', default=degrees(2 * atan(18 / 50)), min=0.000001, max=179.9999,
                               step=10, precision=2, options={'SKIP_SAVE'},
                               get=get_frame_angle, set=set_frame_angle, update=redraw,
-                              description='選んだ方向の中心配置に換算した画角。シフト後の両端を見る実際の角度とは異なります。ドラッグや数値入力でカメラの焦点距離を直接変更します')
+                              description='カメラの焦点距離を変更します。選択した1枚のFRAMEを基準に、指定方向の画角を調整します。数値は中心配置に換算した画角です')
+    frame_angle_ui: FloatProperty(name='基準画角', subtype='ANGLE', unit='ROTATION',
+        min=radians(0.000001), max=radians(179.9999), step=10, precision=4, options={'SKIP_SAVE'},
+        get=lambda s: radians(get_frame_angle(s)), set=lambda s, v: set_frame_angle(s, degrees(v)), update=redraw,
+        description='カメラの焦点距離を変更します。選択した1枚のFRAMEを基準に、指定方向の画角を調整します。数値は中心配置に換算した画角です')
     show_mask: BoolProperty(name='FRAME外をマスク', default=False, update=redraw)
     mask_source: EnumProperty(name='対象', items=[
-        ('ACTIVE', 'アクティブFRAME', '一覧で編集中の1枚を使用します'),
+        ('ACTIVE', '選択FRAME', '青い行のFRAMEを使用します。選択がないときはマスクしません'),
         ('ALL', '全FRAMEの通過範囲', '一覧順の全FRAMEを使用します。枠線の表示・PSD出力のチェックとは独立です')],
         default='ALL', update=redraw)
     mask_opacity: FloatProperty(name='不透明度 %', default=80, min=0, max=100, precision=1, update=redraw)
     export_mask: BoolProperty(name='マスクをPSDへ', default=False,
                              description='画面のマスク表示とは独立して、同じ対象・不透明度で別レイヤーへ出力します')
-    ratio_x: FloatProperty(name='FRAME 横', default=16, min=0.01, max=1000, update=redraw)
-    ratio_y: FloatProperty(name='縦', default=9, min=0.01, max=1000, update=redraw)
+    ratio_x: FloatProperty(name='縦横比（共通）', default=16, min=0.01, max=1000, update=redraw,
+                          description='このカメラの全FRAMEに共通する縦横比の横の値です')
+    ratio_y: FloatProperty(name='縦', default=9, min=0.01, max=1000, update=redraw,
+                          description='このカメラの全FRAMEに共通する縦横比の縦の値です')
     path_type: EnumProperty(name='軌道', items=[
         ('LINE', '直線', 'FRAMEの中心を直線で結びます。接線ハンドルの設定は保持します'),
-        ('BEZIER', 'ベジェ', '接線ハンドルでFRAMEの中心の移動を曲線にします')], default='BEZIER', update=redraw)
+        ('BEZIER', '曲線', 'ベジェの接線ハンドルでFRAMEの中心の移動を曲線にします')], default='BEZIER', update=redraw)
     corner_paths: BoolProperty(default=False, options={'HIDDEN'}, update=redraw)
     path_points: EnumProperty(name='軌道位置', items=[
         ('CENTER', '中央', 'FRAME中心の軌道を表示・出力します', 0),
@@ -193,7 +224,8 @@ class CFCamera(bpy.types.PropertyGroup):
     show_path: BoolProperty(name='軌道を表示', default=True, update=redraw)
     export_path: BoolProperty(name='軌道をPSDへ', default=True)
     path_color: FloatVectorProperty(name='軌道色', size=3, subtype='COLOR', min=0, max=1, default=(1, 0.35, 0.08), update=redraw)
-    line_width: FloatProperty(name='線幅 px', default=2, min=0.5, max=32, update=redraw)
+    line_width: FloatProperty(name='線幅 px', default=2, min=0.5, max=32, update=redraw,
+                             description='ビューポートとPSDに共通のガイド線幅です。出力倍率100%でのピクセル数を指定します')
     show_guides: BoolProperty(name='ガイドを表示', default=True, update=redraw)
     show_axis: BoolProperty(name='光軸', default=True, update=redraw)
     show_horizon: BoolProperty(name='アイレベル', default=True, update=redraw)

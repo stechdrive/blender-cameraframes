@@ -4,6 +4,7 @@ import math
 import uuid
 import bpy
 from bpy.app.handlers import persistent
+from . import frames
 
 PROJECTION = ('type', 'lens', 'sensor_fit', 'sensor_width', 'sensor_height', 'shift_x', 'shift_y', 'ortho_scale')
 RENDER = ('resolution_x', 'resolution_y', 'resolution_percentage', 'pixel_aspect_x', 'pixel_aspect_y')
@@ -179,6 +180,9 @@ def load(group, values):
             items.clear()
             for data in value:
                 load(items.add(), data)
+        elif name in {'frame_index', 'selected'}:
+            # Restore a selection snapshot without invoking a new UI selection.
+            group[name] = value
         elif prop.type != 'POINTER':
             setattr(group, name, value)
 
@@ -286,12 +290,16 @@ def check_frame_focal(scene, obj):
     s = obj.cf_camera
     if not s.frames:
         raise ValueError('撮影FRAMEを追加してください')
+    if len(frames.selected_indices(s)) != 1:
+        raise ValueError('画角の基準にするFRAMEを1枚選択してください')
 
 
 def frame_lens_values(scene, obj):
     from . import geometry
     s = obj.cf_camera
-    frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
+    frame = frames.active(s)
+    if frame is None:
+        raise ValueError('画角の基準にするFRAMEを選択してください')
     return geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj),
                                s.width, s.height, s.frame_lens_axis, s.lens_reference)
 
