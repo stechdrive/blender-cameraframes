@@ -1,6 +1,31 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
-from . import camera, overlay
+from . import camera, geometry, overlay
+
+
+def draw_lens_values(layout, scene, obj):
+    if obj.data.type != 'PERSP' or not camera.synced(scene, obj):
+        return
+    s = obj.cf_camera
+    error = None
+    if s.frames:
+        row = layout.split(factor=0.38, align=True)
+        row.prop(s, 'frame_lens_axis', text='')
+        values = row.split(factor=0.47, align=True)
+        try:
+            camera.check_frame_focal(scene, obj)
+        except ValueError as failure:
+            error = str(failure)
+        values.enabled = error is None
+        values.prop(s, 'frame_focal', text='')
+        values.prop(s, 'frame_angle', text='°')
+    row = layout.split(factor=0.38, align=True)
+    row.prop(s, 'output_lens_axis', text='')
+    focal, angle = geometry.output_lens(camera.bounds(scene, obj), s.output_lens_axis)
+    number = f'{focal:.2f}' if focal < 1e6 else f'{focal:.4g}'
+    row.label(text=f'{number} mm  /  {angle:.2f}°', translate=False)
+    if error:
+        layout.label(text=error, icon='INFO')
 
 
 class CF_UL_frames(bpy.types.UIList):
@@ -111,6 +136,7 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
         row.operator('cf.frame', text='全選択').action = 'SELECT_ALL'
         row.operator('cf.frame', text='選択解除').action = 'DESELECT'
         if not s.frames:
+            draw_lens_values(layout, context.scene, obj)
             return
         editing = overlay.frame_tool_active(context)
         layout.operator('cf.edit_tool', text='FRAME編集を終了' if editing else 'FRAMEを編集',
@@ -130,17 +156,7 @@ class CF_PT_frames(CameraPanel, bpy.types.Panel):
         row.prop(s, 'ratio_y')
         if camera.synced(context.scene, obj):
             if obj.data.type == 'PERSP':
-                col = layout.column(align=True)
-                error = None
-                try:
-                    camera.check_frame_focal(context.scene, obj)
-                except ValueError as failure:
-                    error = str(failure)
-                col.enabled = error is None
-                col.prop(s, 'frame_focal')
-                col.prop(s, 'frame_angle')
-                if error:
-                    layout.label(text=error, icon='INFO')
+                draw_lens_values(layout, context.scene, obj)
             elif obj.data.type == 'ORTHO':
                 l, r, b, t = camera.bounds(context.scene, obj)
                 layout.label(text=f'正投影 幅 {f.width / s.width * (r - l):.4g}')

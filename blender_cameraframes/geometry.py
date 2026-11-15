@@ -9,6 +9,7 @@ from math import atan, ceil, cos, degrees, hypot, isfinite, pi, sin, sqrt
 
 AXIS_COLOR = (1.0, 0.35, 0.35)
 HORIZON_COLOR = (0.4, 1.0, 0.5)
+FULL_FRAME_REFERENCE = {'HORIZONTAL': 36.0, 'VERTICAL': 24.0, 'DIAGONAL': hypot(36.0, 24.0)}
 FRAME_COORD_LIMIT = 1000000.0
 FRAME_MIN_WIDTH = 1.0
 FRAME_MAX_WIDTH = 1000000.0
@@ -253,8 +254,23 @@ def clip_segment(a, b, width, height):
     return ((a[0] + low * dx, a[1] + low * dy), (a[0] + high * dx, a[1] + high * dy))
 
 
-def frame_lens(frame, ratio, bounds, width, height):
+def lens_from_span(span, axis='HORIZONTAL'):
+    """Full-frame equivalent and centered reference angle, not shifted edge rays."""
+    return (FULL_FRAME_REFERENCE[axis] / span, degrees(2 * atan(span / 2))) if isfinite(span) and span > 0 else (0, 0)
+
+
+def frame_lens(frame, ratio, bounds, width, height, axis='HORIZONTAL'):
     l, r, b, t = bounds
-    x, y = rotate((frame.width / 2, 0), frame.angle)
+    w, h = frame.width / 2, frame.width / (2 * ratio)
+    # The diagonal runs from the FRAME's local bottom-left to top-right.
+    vector = {'HORIZONTAL': (w, 0), 'VERTICAL': (0, h), 'DIAGONAL': (w, -h)}[axis]
+    x, y = rotate(vector, frame.angle)
     span = hypot(2 * x / width * (r - l), 2 * y / height * (t - b))
-    return (36 / span, degrees(2 * atan(span / 2))) if span > 1e-12 else (0, 0)
+    return lens_from_span(span, axis)
+
+
+def output_lens(bounds, axis='HORIZONTAL'):
+    """Use the full output gate; resolution percentage and render border do not crop it."""
+    l, r, b, t = bounds
+    span = {'HORIZONTAL': r - l, 'VERTICAL': t - b, 'DIAGONAL': hypot(r - l, t - b)}[axis]
+    return lens_from_span(span, axis)

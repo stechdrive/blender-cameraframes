@@ -259,14 +259,14 @@ def check_frame_focal(scene, obj):
 
 
 def set_frame_focal(scene, obj, target, *, clamp=False):
-    """Change the actual lens through the FRAME's width-based equivalent."""
+    """Change the actual lens through the FRAME's selected reference direction."""
     from . import geometry
     check_frame_focal(scene, obj)
     s = obj.cf_camera
     if not math.isfinite(target) or target <= 0:
         raise ValueError('目標35mm換算値には正の数を指定してください')
     frame = s.frames[min(s.frame_index, len(s.frames) - 1)]
-    current = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height)[0]
+    current = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height, s.frame_lens_axis)[0]
     if not math.isfinite(current) or current <= 0:
         raise ValueError('FRAMEの画角を計算できません')
     old = obj.data.lens
@@ -281,7 +281,7 @@ def set_frame_focal(scene, obj, target, *, clamp=False):
         return old
     try:
         obj.data.lens = value
-        actual = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height)[0]
+        actual = geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj), s.width, s.height, s.frame_lens_axis)[0]
         if not math.isfinite(actual) or abs(actual - target) > max(1e-4, target * 1e-5):
             raise ValueError('目標値に合わせられませんでした。カメラ設定を確認してください')
     except Exception:

@@ -29,7 +29,8 @@ def lens_values(self):
     if not scene or not self.frames or obj.type != 'CAMERA' or obj.data.type != 'PERSP' or not camera.synced(scene, obj):
         return 0.0, 0.0
     frame = self.frames[min(self.frame_index, len(self.frames) - 1)]
-    return geometry.frame_lens(frame, self.ratio_x / self.ratio_y, camera.bounds(scene, obj), self.width, self.height)
+    return geometry.frame_lens(frame, self.ratio_x / self.ratio_y, camera.bounds(scene, obj),
+                               self.width, self.height, self.frame_lens_axis)
 
 
 def get_frame_focal(self):
@@ -47,7 +48,8 @@ def get_frame_angle(self):
 
 def set_frame_angle(self, value):
     from . import camera
-    camera.set_frame_focal(bpy.context.scene, self.id_data, 18 / tan(radians(value) / 2), clamp=True)
+    reference = geometry.FULL_FRAME_REFERENCE[self.frame_lens_axis]
+    camera.set_frame_focal(bpy.context.scene, self.id_data, reference / (2 * tan(radians(value) / 2)), clamp=True)
 
 
 def get_frame_color(self):
@@ -110,16 +112,26 @@ class CFCamera(bpy.types.PropertyGroup):
     show_frame_names: BoolProperty(name='名前', default=True, update=redraw,
                                   description='FRAME編集・操作中に、選択または操作対象の名前を表示します。オフにすると常に非表示です')
     frame_index: IntProperty(default=0, min=0, update=redraw)
+    frame_lens_axis: EnumProperty(name='FRAMEの換算基準', default='HORIZONTAL', options=set(), update=redraw,
+        description='選択FRAMEのフルサイズ換算と基準画角の方向。切替は表示だけを変更し、構図・焦点距離を変えません',
+        items=[('HORIZONTAL', 'FRAME 横', 'FRAMEの横幅をフルサイズの横36mmと比較。FRAMEの回転に追従します'),
+               ('VERTICAL', 'FRAME 縦', 'FRAMEの高さをフルサイズの縦24mmと比較。FRAMEの回転に追従します'),
+               ('DIAGONAL', 'FRAME 対角', 'FRAMEの左下から右上への対角をフルサイズの対角約43.27mmと比較。FRAMEの回転に追従します')])
+    output_lens_axis: EnumProperty(name='出力の換算基準', default='HORIZONTAL', options=set(), update=redraw,
+        description='出力全体のフルサイズ換算と基準画角の方向。中心配置に換算した値で、シフト後の両端を見る実際の角度とは異なります。出力倍率・領域クロップは含みません',
+        items=[('HORIZONTAL', '出力 横', '出力全体の横幅をフルサイズの横36mmと比較'),
+               ('VERTICAL', '出力 縦', '出力全体の高さをフルサイズの縦24mmと比較'),
+               ('DIAGONAL', '出力 対角', '出力全体の対角をフルサイズの対角約43.27mmと比較')])
     # Computed UI properties belong to the Object ID so native numeric editing
     # is undoable. They never store a second lens value or participate in copies.
-    frame_focal: FloatProperty(name='幅基準35mm換算 mm', default=50, min=0.000001, max=1e12,
-                              step=10, precision=2, options={'SKIP_SAVE'},
+    frame_focal: FloatProperty(name='フルサイズ換算 mm', default=50, min=0.000001, max=1e12,
+                              step=10, precision=2, subtype='DISTANCE_CAMERA', unit='CAMERA', options={'SKIP_SAVE'},
                               get=get_frame_focal, set=set_frame_focal, update=redraw,
-                              description='現在のアクティブFRAMEの換算焦点距離。ドラッグや数値入力でカメラの焦点距離を直接変更します')
+                              description='選んだ方向で36×24mmフルサイズに換算した焦点距離。ドラッグや数値入力でカメラの焦点距離を直接変更します')
     frame_angle: FloatProperty(name='基準画角 °', default=degrees(2 * atan(18 / 50)), min=0.000001, max=179.9999,
                               step=10, precision=2, options={'SKIP_SAVE'},
                               get=get_frame_angle, set=set_frame_angle, update=redraw,
-                              description='現在のアクティブFRAMEの幅基準画角。ドラッグや数値入力でカメラの焦点距離を直接変更します')
+                              description='選んだ方向の中心配置に換算した画角。シフト後の両端を見る実際の角度とは異なります。ドラッグや数値入力でカメラの焦点距離を直接変更します')
     show_mask: BoolProperty(name='FRAME外をマスク', default=False, update=redraw)
     mask_source: EnumProperty(name='対象', items=[
         ('ACTIVE', 'アクティブFRAME', '一覧で編集中の1枚を使用します'),
