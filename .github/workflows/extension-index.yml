@@ -57,7 +57,7 @@ jobs:
           assert len(package) == item['archive_size']
           assert 'sha256:' + hashlib.sha256(package).hexdigest() == item['archive_hash']
           paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', 'HEAD', '--',
-                                           'blender_cameraframes', 'LICENSE', 'README.md',
+                                           'blender_cameraframes', 'LICENSE', 'README.md', 'README.en.md',
                                            'docs/images/composition-expansion.png', 'docs/images/create-camera-0.1.17.png', 'docs/images/frame-controls-0.1.17.png',
                                            'docs/images/vertical-pan-0.1.17.png', 'docs/images/guide-psd-layers-0.1.17.png']).decode().splitlines()
           expected = {p.removeprefix('blender_cameraframes/'): subprocess.check_output(['git', 'show', 'HEAD:' + p])
