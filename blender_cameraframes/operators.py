@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
+from .translations import CONTEXT, report as rpt, tip
 from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
@@ -17,7 +18,7 @@ class EditSession:
     def __init__(self, context, *, paper=False):
         self.scene, self.obj = context.scene, camera.active(context.scene)
         if any(edit.obj == self.obj for edit in _edits):
-            raise ValueError('このカメラでは別の編集操作が進行中です')
+            raise ValueError('Another edit is in progress for this camera')
         self.data = self.obj.data
         self.window, self.area = context.window, context.area
         self.paper, self.closed, self.dirty = paper, False, False
@@ -104,7 +105,7 @@ class EditSession:
     def preview_paper(self, width, height, lock):
         if not self.current():
             self.cancel()
-            raise ValueError('操作対象が変わったため、用紙変更を取り消しました')
+            raise ValueError('Paper resize canceled because the editing target changed')
         views = self.live_views()
         self.restore_local()
         camera.apply(self.scene, self.obj)
@@ -166,9 +167,10 @@ class CameraOperator:
 
 
 class CF_OT_register(bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.register_camera'
-    bl_label = '選択カメラを登録'
-    bl_description = '選択したカメラを登録します。他のカメラと設定を共有している場合は独立させます'
+    bl_label = 'Add Selected Camera'
+    bl_description = 'Register the selected camera, making its data independent if shared with another camera'
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -180,15 +182,16 @@ class CF_OT_register(bpy.types.Operator):
             obj = camera.register_camera(context.scene, context.active_object)
             camera.activate(context, obj)
         except ValueError as error:
-            self.report({'ERROR'}, str(error))
+            self.report({'ERROR'}, rpt(str(error)))
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 class CF_OT_activate(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.activate_camera'
-    bl_label = '編集カメラを切り替え'
-    bl_description = 'このカメラを選択し、用紙サイズをBlenderの出力設定へ反映します'
+    bl_label = 'Switch Camera'
+    bl_description = "Select this camera and apply its paper dimensions to Blender's output settings"
     bl_options = {'REGISTER', 'UNDO'}
     index: IntProperty(default=-1)
 
@@ -203,7 +206,7 @@ class CF_OT_activate(CameraOperator, bpy.types.Operator):
             return {'CANCELLED'}
         obj = state.cameras[index].camera
         if not obj or obj.type != 'CAMERA' or context.scene.objects.get(obj.name) != obj:
-            self.report({'WARNING'}, 'このカメラはシーン内にありません。登録解除してください')
+            self.report({'WARNING'}, rpt('This camera is no longer in the scene. Remove its registration'))
             return {'CANCELLED'}
         camera.activate(context, obj)
         if context.area:
@@ -212,9 +215,10 @@ class CF_OT_activate(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_sync_output(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.sync_output'
-    bl_label = '用紙サイズを出力に反映'
-    bl_description = 'このカメラの用紙寸法・ピクセル比率をBlenderの出力設定へ反映します'
+    bl_label = 'Apply Paper Size to Output'
+    bl_description = "Apply this camera's paper dimensions and pixel aspect ratio to Blender's output settings"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -228,9 +232,10 @@ class CF_OT_sync_output(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_unregister(bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.unregister_camera'
-    bl_label = '登録解除'
-    bl_description = '一覧から外します。カメラとその設定は保持します'
+    bl_label = 'Unregister Camera'
+    bl_description = 'Remove this camera from the list, keeping the camera and its settings'
     bl_options = {'REGISTER', 'UNDO'}
     index: IntProperty(default=-1)
 
@@ -247,9 +252,10 @@ class CF_OT_unregister(bpy.types.Operator):
 
 
 class CF_OT_duplicate_camera(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.duplicate_camera'
-    bl_label = 'カメラを設定ごと複製'
-    bl_description = '用紙設定・FRAME・アニメーションを引き継ぎ、独立して編集できるカメラを作ります'
+    bl_label = 'Duplicate Camera with Settings'
+    bl_description = 'Create an independently editable camera with the same paper settings, FRAMEs and animation'
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -258,21 +264,22 @@ class CF_OT_duplicate_camera(CameraOperator, bpy.types.Operator):
             context.view_layer.update()
             camera.activate(context, obj)
         except (ValueError, RuntimeError) as error:
-            self.report({'ERROR'}, str(error))
+            self.report({'ERROR'}, rpt(str(error)))
             return {'CANCELLED'}
         if obj.parent or obj.constraints or (obj.animation_data and obj.animation_data.drivers):
-            self.report({'INFO'}, '複製しました。親・constraint・driverの参照先は引き継いでいます')
+            self.report({'INFO'}, rpt('Camera duplicated, keeping parent, constraint and driver references'))
         return {'FINISHED'}
 
 
 class CF_OT_paper(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.paper_size'
-    bl_label = '構図を保って用紙変更'
-    bl_description = '数値欄をドラッグまたは直接入力。プレビューを確認して確定します'
+    bl_label = 'Resize Paper, Keep Composition'
+    bl_description = 'Drag the values or type dimensions, preview the result, then confirm'
     bl_options = {'REGISTER', 'UNDO'}
-    width: IntProperty(name='幅 px', min=4, max=30000, default=1920)
-    height: IntProperty(name='高さ px', min=4, max=30000, default=1080)
-    lock: BoolProperty(name='縦横比を固定')
+    width: IntProperty(name='Width (px)', min=4, max=30000, default=1920, translation_context=CONTEXT)
+    height: IntProperty(name='Height (px)', min=4, max=30000, default=1080, translation_context=CONTEXT)
+    lock: BoolProperty(name='Lock Aspect Ratio', translation_context=CONTEXT)
     _edit = None
     _error = ''
 
@@ -282,7 +289,7 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
             camera.check_resize(context.scene, obj)
             self._edit = EditSession(context, paper=True)
         except ValueError as error:
-            self.report({'ERROR'}, str(error))
+            self.report({'ERROR'}, rpt(str(error)))
             return {'CANCELLED'}
         self.width, self.height, self.lock = obj.cf_camera.width, obj.cf_camera.height, obj.cf_camera.aspect_lock
         self._previous = (self.width, self.height)
@@ -293,15 +300,15 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
         self.layout.prop(self, 'width')
         self.layout.prop(self, 'height')
         self.layout.prop(self, 'lock')
-        self.layout.label(text='数値をドラッグ: 連続変更 / Shift: 微調整')
-        self.layout.label(text='Esc: 変更を取り消す')
+        self.layout.label(text='Drag values to preview / Shift: precision', text_ctxt=CONTEXT)
+        self.layout.label(text='Esc: cancel changes', text_ctxt=CONTEXT)
         if self._error:
-            self.layout.label(text=self._error, icon='ERROR')
+            self.layout.label(text=self._error, icon='ERROR', text_ctxt=CONTEXT)
 
     def check(self, context):
         edit = self._edit
         if not edit or edit.closed:
-            self._error = '操作対象が変わったため、用紙変更を取り消しました'
+            self._error = 'Paper resize canceled because the editing target changed'
             return False
         if self.lock:
             base = edit.state['settings']
@@ -322,7 +329,7 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
             self.check(context)
             if self._error:
                 self.cancel(context)
-                self.report({'ERROR'}, self._error)
+                self.report({'ERROR'}, rpt(self._error))
                 return {'CANCELLED'}
             self._edit.finish()
             self._edit = None
@@ -333,7 +340,7 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
                 margins = camera.resize(context.scene, obj, self.width, self.height)
                 overlay.preserve_views(context.scene, obj, views, margins)
             except ValueError as error:
-                self.report({'ERROR'}, str(error))
+                self.report({'ERROR'}, rpt(str(error)))
                 return {'CANCELLED'}
         return {'FINISHED'}
 
@@ -343,9 +350,10 @@ class CF_OT_paper(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_fit(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.fit_view'
-    bl_label = '用紙を全体表示'
-    bl_description = 'ビューポート表示だけを合わせます。用紙・構図は変更しません'
+    bl_label = 'Fit Paper in View'
+    bl_description = 'Fit the paper in the viewport, keeping paper dimensions and camera composition'
 
     def execute(self, context):
         target = overlay.view_target(context, camera_view=False)
@@ -361,9 +369,10 @@ class CF_OT_fit(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_zoom(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.zoom_view'
-    bl_label = '用紙の表示倍率を調整'
-    bl_description = 'カメラの構図を変えずに用紙の画面表示を拡大・縮小します'
+    bl_label = 'Zoom Paper View'
+    bl_description = 'Zoom the paper in the viewport while keeping camera composition'
     factor: FloatProperty(default=1.2, min=0.1, max=10)
 
     def execute(self, context):
@@ -378,22 +387,23 @@ def selected_indices(settings):
 
 
 class CF_OT_frame(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.frame'
-    bl_label = 'FRAME操作'
-    bl_description = '撮影FRAMEを編集します'
+    bl_label = 'FRAME Actions'
+    bl_description = 'Edit shooting FRAMEs'
     bl_options = {'REGISTER', 'UNDO'}
     action: EnumProperty(items=[
-        ('ADD', '追加', '撮影FRAMEを追加します'),
-        ('DUPLICATE', '複製', '選択したFRAMEを複製します'),
-        ('REMOVE', '削除', '選択したFRAMEを削除します'),
-        ('UP', '上へ', '選択FRAMEを一覧の上へ移動します。軌道は一覧順につながります'),
-        ('DOWN', '下へ', '選択FRAMEを一覧の下へ移動します。軌道は一覧順につながります'),
-        ('SELECT_ALL', '全選択', '表示中のFRAMEをすべて選択します'),
-        ('DESELECT', '選択解除', 'FRAMEの選択を解除します')])
+        ('ADD', 'Add', 'Add a shooting FRAME'),
+        ('DUPLICATE', 'Duplicate', 'Duplicate the selected FRAMEs'),
+        ('REMOVE', 'Remove', 'Remove the selected FRAMEs'),
+        ('UP', 'Move Up', 'Move selected FRAMEs up in the list. The path follows list order'),
+        ('DOWN', 'Move Down', 'Move selected FRAMEs down in the list. The path follows list order'),
+        ('SELECT_ALL', 'Select All', 'Select all visible FRAMEs'),
+        ('DESELECT', 'Deselect All', 'Deselect all FRAMEs')], translation_context=CONTEXT)
 
     @classmethod
     def description(cls, context, properties):
-        return properties.bl_rna.properties['action'].enum_items[properties.action].description
+        return tip(properties.bl_rna.properties['action'].enum_items[properties.action].description)
 
     def execute(self, context):
         s = camera.active(context.scene).cf_camera
@@ -403,7 +413,7 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
         if self.action in {'ADD', 'DUPLICATE'}:
             count = len(indices) if self.action == 'DUPLICATE' and indices else 1
             if len(s.frames) + count > 128:
-                self.report({'WARNING'}, 'FRAMEは128個までです')
+                self.report({'WARNING'}, rpt('You can create up to 128 FRAMEs'))
                 return {'CANCELLED'}
             properties.initialize_frame_colors(s)
             templates = [camera.dump(s.frames[i]) for i in indices] if self.action == 'DUPLICATE' else []
@@ -455,9 +465,10 @@ class CF_OT_frame(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.export_psd'
-    bl_label = 'ガイドPSDを書き出す'
-    bl_description = 'FRAME・軌道・補助線・マスクを別レイヤーで保存します'
+    bl_label = 'Export Guide PSD'
+    bl_description = 'Save FRAMEs, motion paths, auxiliary guides and mask as separate layers'
     filename_ext = '.psd'
     filter_glob: StringProperty(default='*.psd', options={'HIDDEN'})
 
@@ -470,16 +481,16 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
         obj = camera.active(context.scene)
         s = obj.cf_camera
         if obj.data.type not in {'PERSP', 'ORTHO'}:
-            self.report({'ERROR'}, '透視または正投影のカメラを使用してください')
+            self.report({'ERROR'}, rpt('Use a perspective or orthographic camera'))
             return {'CANCELLED'}
         if not camera.synced(context.scene, obj):
-            self.report({'ERROR'}, '用紙と出力設定が異なります。「用紙サイズを出力に反映」を実行してください')
+            self.report({'ERROR'}, rpt('Paper and output settings differ. Apply Paper Size to Output before exporting'))
             return {'CANCELLED'}
         if context.scene.render.use_border and context.scene.render.use_crop_to_border:
-            self.report({'ERROR'}, 'PSD出力時はレンダー領域の「領域にクロップ」を解除してください')
+            self.report({'ERROR'}, rpt('Disable Crop to Render Region before exporting a PSD'))
             return {'CANCELLED'}
         if abs(s.aspect_x - s.aspect_y) > 1e-6:
-            self.report({'ERROR'}, 'PSD出力は正方形ピクセルに対応しています')
+            self.report({'ERROR'}, rpt('PSD export requires square pixels'))
             return {'CANCELLED'}
         width, height = camera.output_size(context.scene, obj)
         sx, sy = width / s.width, height / s.height
@@ -495,23 +506,26 @@ class CF_OT_export(CameraOperator, bpy.types.Operator, ExportHelper):
                 triangles = mask.triangles(mask.key_for(s), s.width, s.height)
                 mask_layer = (tuple(tuple((x * sx, y * sy) for x, y in tri) for tri in triangles), s.mask_opacity / 100)
             if not layers and mask_layer is None:
-                raise ValueError('用紙内に出力できるガイドがありません' + (' / ' + ' / '.join(omitted) if omitted else ''))
+                raise ValueError('There are no guides to export within the paper')
             write_psd(bpy.path.ensure_ext(self.filepath, '.psd'), width, height, s.ppi, layers,
                       lambda fraction: wm.progress_update(fraction * 100), mask_layer=mask_layer)
         except (OSError, ValueError, MemoryError) as error:
-            self.report({'ERROR'}, 'PSD出力に失敗: ' + str(error))
+            self.report({'ERROR'}, rpt('PSD export failed: {error}', error=rpt(str(error))) +
+                        (' / ' + ' / '.join(rpt(message) for message in omitted) if omitted else ''))
             return {'CANCELLED'}
         finally:
             wm.progress_end()
-        self.report({'INFO'}, f'ガイドPSDを保存: {width} × {height}px / {s.ppi:g} PPI' +
-                    (' / ' + ' / '.join(omitted) if omitted else ''))
+        self.report({'INFO'}, rpt('Guide PSD saved: {width} × {height}px / {ppi:g} PPI',
+                                width=width, height=height, ppi=s.ppi) +
+                    (' / ' + ' / '.join(rpt(message) for message in omitted) if omitted else ''))
         return {'FINISHED'}
 
 
 class CF_OT_align_pixels(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.align_pixels'
-    bl_label = 'ピクセルに合わせる'
-    bl_description = '内側の四辺を出力画像のピクセル境界に合わせます。寸法・回転・複数FRAMEの位置関係を保ちます'
+    bl_label = 'Align to Pixels'
+    bl_description = 'Align the four inner edges to output pixel boundaries, preserving dimensions, rotation and the relative positions of multiple FRAMEs'
     bl_options = {'UNDO'}
 
     @classmethod
@@ -536,11 +550,11 @@ class CF_OT_align_pixels(CameraOperator, bpy.types.Operator):
             # RNA stores floats. Reject an unrepresentable result as a whole.
             correction = geometry.pixel_alignment(selected, s.ratio_x / s.ratio_y, scale)
             if any(abs(v * a) > 1e-4 for v, a in zip(correction, scale)):
-                raise ValueError('現在の座標精度ではピクセル境界に合わせられません')
+                raise ValueError('Pixel boundaries cannot be represented at the current coordinate precision')
         except ValueError as error:
             for f, (x, y) in zip(selected, saved):
                 f.x, f.y = x, y
-            self.report({'WARNING'}, str(error))
+            self.report({'WARNING'}, rpt(str(error)))
             return {'CANCELLED'}
         return {'FINISHED'}
 

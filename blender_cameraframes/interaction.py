@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from math import atan2, hypot, isfinite
 import bpy
+from .translations import CONTEXT, iface, report as rpt, tip
 from bpy.props import EnumProperty, IntProperty
 from . import camera, geometry, overlay, frames
 from .operators import CameraOperator, EditSession, selected_indices
@@ -8,32 +9,33 @@ from .operators import CameraOperator, EditSession, selected_indices
 
 def get_view(context, obj):
     if not context.area or context.area.type != 'VIEW_3D':
-        raise ValueError('3Dビューで操作してください')
+        raise ValueError('Use a 3D Viewport for this operation')
     space = context.area.spaces.active
     if space.region_quadviews:
-        raise ValueError('ガイドのドラッグは単一のカメラビューで操作してください')
+        raise ValueError('Drag guides in a single camera view')
     if space.region_3d.view_perspective != 'CAMERA' or overlay.view_camera(space, context.scene) != obj:
-        raise ValueError('編集カメラのカメラビューを表示してください')
+        raise ValueError('Switch to the camera view of the camera being edited')
     if not camera.synced(context.scene, obj):
-        raise ValueError('「用紙サイズを出力に反映」を実行してください')
+        raise ValueError('Use Apply Paper Size to Output first')
     return next(r for r in context.area.regions if r.type == 'WINDOW'), space.region_3d
 
 
 class CF_OT_drag(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.drag_frame'
-    bl_label = 'FRAMEをドラッグ'
-    bl_description = 'クリックしてドラッグ。枠内: 移動、四隅: 拡縮、黄点: ベジェ。Shiftクリック: 複数選択'
+    bl_label = 'Drag FRAME'
+    bl_description = 'Click and drag inside a FRAME to move, at a corner to scale, or at a yellow point to edit Bezier handles. Shift-click to select multiple FRAMEs'
     bl_options = {'UNDO', 'BLOCKING'}
     mode: EnumProperty(items=[
-        ('PICK', '選択して変形', '枠内をドラッグして移動、四隅で拡縮、黄色い点でベジェを編集します'),
-        ('MOVE', '移動', 'ドラッグで移動。Shift: 水平・垂直に固定、X/Y: 軸指定、Ctrl: 微調整、Esc: 取消'),
-        ('SCALE', '拡縮', 'ビュー内でドラッグして選択FRAMEを基点から拡縮します。Shiftで微調整、Escで取消'),
-        ('ROTATE', '回転', 'ビュー内でドラッグして選択FRAMEを基点の周りに回転します。Shiftで微調整、Escで取消'),
-        ('PIVOT', '基点移動', '拡縮・回転の基点をFRAMEや用紙の外にも移動できます。枠の位置は変わりません')], default='PICK')
+        ('PICK', 'Select and Transform', 'Drag inside to move, at corners to scale, or at yellow points to edit Bezier handles'),
+        ('MOVE', 'Move', 'Drag to move. Shift: constrain horizontally or vertically; X/Y: choose axis; Ctrl: precision; Esc: cancel'),
+        ('SCALE', 'Scale', 'Drag in the view to scale selected FRAMEs around the pivot. Shift: precision; Esc: cancel'),
+        ('ROTATE', 'Rotate', 'Drag in the view to rotate selected FRAMEs around the pivot. Shift: precision; Esc: cancel'),
+        ('PIVOT', 'Move Pivot', 'Move the scale and rotation pivot, including outside the FRAME or paper, while keeping the FRAME in place')], default='PICK', translation_context=CONTEXT)
 
     @classmethod
     def description(cls, context, properties):
-        return properties.bl_rna.properties['mode'].enum_items[properties.mode].description
+        return tip(properties.bl_rna.properties['mode'].enum_items[properties.mode].description)
 
     @classmethod
     def poll(cls, context):
@@ -47,7 +49,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
             self.region, self.rv = get_view(context, self.obj)
             self._edit = EditSession(context)
         except ValueError as error:
-            self.report({'WARNING'}, str(error))
+            self.report({'WARNING'}, rpt(str(error)))
             return {'CANCELLED'}
         if not self.obj.cf_camera.frames:
             self._edit.finish()
@@ -77,16 +79,17 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
 
     def show_status(self):
         mode = self.operation if self.started else self.mode
-        label = {'PICK': 'FRAMEを選択・ドラッグ', 'MOVE': 'FRAMEを移動', 'SCALE': 'FRAMEを拡縮',
-                 'ROTATE': 'FRAMEを回転', 'PIVOT': '基点を移動',
-                 'HANDLE_IN': '前のFRAME側のハンドルを編集', 'HANDLE_OUT': '次のFRAME側のハンドルを編集'}[mode]
+        label = {'PICK': 'Select and drag FRAME', 'MOVE': 'Move FRAME', 'SCALE': 'Scale FRAME',
+                 'ROTATE': 'Rotate FRAME', 'PIVOT': 'Move pivot',
+                 'HANDLE_IN': 'Edit incoming handle', 'HANDLE_OUT': 'Edit outgoing handle'}[mode]
+        label = iface(label)
         axis = self.axis or self.auto_axis
         if mode == 'MOVE' and axis:
-            label += '（水平）' if axis == 'X' else '（垂直）'
-        hint = (' / Shift: 軸固定 / X・Y: 軸指定 / Ctrl: 微調整' if mode in {'MOVE', 'PICK'}
-                else ' / Shift: 微調整')
-        self._edit.header(label + ('中 / マウスを離す: 確定' if self.started else ' / ビュー内でドラッグ') +
-                          hint + ' / Esc: 取消')
+            label += iface(' (horizontal)' if axis == 'X' else ' (vertical)')
+        hint = iface(' / Shift: constrain / X, Y: axis / Ctrl: precision' if mode in {'MOVE', 'PICK'}
+                     else ' / Shift: precision')
+        self._edit.header(label + iface(' / Release: confirm' if self.started else ' / Drag in view') +
+                          hint + iface(' / Esc: cancel'))
 
     def begin(self, context, event):
         s = self.obj.cf_camera
@@ -155,7 +158,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
         s = self.obj.cf_camera
         point = self.point(event)
         if not all(isfinite(v) for v in point):
-            raise ValueError('マウス座標が無効です')
+            raise ValueError('Invalid pointer coordinates')
         if not self.dragged:
             self.dragged = hypot(event.mouse_x - self.start_mouse[0], event.mouse_y - self.start_mouse[1]) >= self.drag_threshold
         if self.shift_click is not None and not self.dragged:
@@ -246,7 +249,7 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
                 self._last_transform_error = None
             except ValueError as error:
                 if str(error) != self._last_transform_error:
-                    self.report({'WARNING'}, str(error))
+                    self.report({'WARNING'}, rpt(str(error)))
                     self._last_transform_error = str(error)
             context.area.tag_redraw()
         elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
@@ -265,9 +268,10 @@ class CF_OT_drag(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.drag_paper'
-    bl_label = '用紙をドラッグ'
-    bl_description = 'ビュー内でドラッグ: 右で幅を拡大、上で高さを拡大。Shiftで微調整、Escで取消'
+    bl_label = 'Drag Paper Size'
+    bl_description = 'Drag right to increase width and up to increase height. Shift: precision; Esc: cancel'
     bl_options = {'UNDO', 'BLOCKING'}
 
     def invoke(self, context, event):
@@ -277,7 +281,7 @@ class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
             camera.check_resize(context.scene, self.obj)
             self._edit = EditSession(context, paper=True)
         except ValueError as error:
-            self.report({'WARNING'}, str(error))
+            self.report({'WARNING'}, rpt(str(error)))
             return {'CANCELLED'}
         self.scene = context.scene
         self.box = overlay.rect(context.scene, self.obj, self.region, self.rv)
@@ -285,7 +289,7 @@ class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
             self._edit.finish()
             return {'CANCELLED'}
         self.start = None
-        self._edit.header('用紙: ビュー内でドラッグ / Shift 微調整 / Esc 取消')
+        self._edit.header(iface('Paper: drag in view / Shift: precision / Esc: cancel'))
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -313,9 +317,10 @@ class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
                 width, height = geometry.locked_dimensions(width, height, base['width'], base['height'])
             try:
                 self._edit.preview_paper(width, height, base['aspect_lock'])
-                self._edit.header(f'用紙: {width} × {height}px / Shift 微調整 / Esc 取消')
+                self._edit.header(iface('Paper: {width} × {height}px / Shift: precision / Esc: cancel',
+                                        width=width, height=height))
             except ValueError as error:
-                self._edit.header(str(error))
+                self._edit.header(iface(str(error)))
             context.area.tag_redraw()
         elif self.start and event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             self.finish()
@@ -324,11 +329,12 @@ class CF_OT_paper_drag(CameraOperator, bpy.types.Operator):
 
 
 class CF_OT_nudge(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.nudge_frame'
-    bl_label = 'FRAMEを1px移動'
-    bl_description = '選択FRAMEを用紙上で1px移動します。Shiftで10px。小数座標と位置関係を保ちます'
+    bl_label = 'Nudge FRAME by 1 px'
+    bl_description = 'Move selected FRAMEs by 1 paper pixel, or 10 with Shift. Preserves fractional coordinates and relative positions'
     bl_options = {'UNDO'}
-    direction: EnumProperty(items=[(v, v, '') for v in ('LEFT', 'RIGHT', 'UP', 'DOWN')])
+    direction: EnumProperty(items=[(v, v, '') for v in ('LEFT', 'RIGHT', 'UP', 'DOWN')], translation_context=CONTEXT)
     step: IntProperty(default=1, min=1, max=10)
 
     @classmethod
@@ -354,7 +360,9 @@ class CF_WST_edit(bpy.types.WorkSpaceTool):
     bl_context_mode = 'OBJECT'
     bl_idname = 'cf.edit_guides'
     bl_label = 'Camera Frames'
-    bl_description = '撮影FRAMEの選択・移動・拡縮・ベジェ編集'
+    @staticmethod
+    def bl_description(context, tool, keymap):
+        return tip('Select, move and scale shooting FRAMEs, and edit Bezier handles')
     bl_icon = 'ops.generic.select_box'
     bl_keymap = (
         ('cf.drag_frame', {'type': 'LEFTMOUSE', 'value': 'PRESS'}, {'properties': [('mode', 'PICK')]}),
@@ -367,9 +375,10 @@ class CF_WST_edit(bpy.types.WorkSpaceTool):
 
 
 class CF_OT_edit_tool(CameraOperator, bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.edit_tool'
-    bl_label = 'FRAME編集を切り替え'
-    bl_description = 'ビュー内のFRAMEを直接選んで編集するツールを開始・終了します。Shiftクリックで複数選択できます'
+    bl_label = 'Toggle FRAME Editing'
+    bl_description = 'Start or finish editing FRAMEs directly in the view. Shift-click to select multiple FRAMEs'
 
     @classmethod
     def poll(cls, context):

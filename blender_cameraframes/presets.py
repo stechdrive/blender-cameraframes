@@ -8,12 +8,13 @@ from pathlib import Path
 import tempfile
 import uuid
 import bpy
+from .translations import JA
 
 
 BUILTINS = (
-    ('A4_150', 'A4横・150dpi', dict(width=1754, height=1240, frame_width=1536,
+    ('A4_150', 'A4 Landscape / 150 dpi', dict(width=1754, height=1240, frame_width=1536,
                                  ratio_x=16, ratio_y=9, ppi=150, offset_x=0, offset_y=0)),
-    ('A4_200', 'A4横・200dpi', dict(width=2338, height=1654, frame_width=2048,
+    ('A4_200', 'A4 Landscape / 200 dpi', dict(width=2338, height=1654, frame_width=2048,
                                  ratio_x=16, ratio_y=9, ppi=200, offset_x=0, offset_y=0)),
 )
 LIMITS = dict(width=(4, 30000), height=(4, 30000), frame_width=(1, 1e6),
@@ -31,24 +32,24 @@ def location():
     else:
         directory = bpy.utils.user_resource('CONFIG', path='camera_frames')
     if not directory:
-        raise OSError('ユーザー設定の保存先を取得できません')
+        raise OSError('Could not locate the user settings directory')
     return Path(directory) / 'camera-presets.json'
 
 
 def validate(values):
     if not isinstance(values, dict) or set(values) != set(LIMITS):
-        raise ValueError('プリセットの項目が正しくありません')
+        raise ValueError('Invalid preset fields')
     result = {}
     for key, (low, high) in LIMITS.items():
         v = values[key]
         if type(v) not in (int, float) or not math.isfinite(v) or not low <= v <= high:
-            raise ValueError('プリセットの数値が対応範囲外です')
+            raise ValueError('Preset values are out of range')
         if key in {'width', 'height'} and int(v) != v:
-            raise ValueError('用紙サイズは整数で指定してください')
+            raise ValueError('Use whole pixels for the paper dimensions')
         result[key] = int(v) if key in {'width', 'height'} else float(v)
     if any(abs(result[axis] / 2 + result[offset]) > 1e6
            for axis, offset in (('width', 'offset_x'), ('height', 'offset_y'))):
-        raise ValueError('FRAMEの中心が対応範囲外です')
+        raise ValueError('The FRAME center is out of range')
     return result
 
 
@@ -68,11 +69,11 @@ def register():
         path = location()
         if path.exists():
             if path.stat().st_size > 512 * 1024:
-                raise ValueError('プリセットファイルが大きすぎます')
+                raise ValueError('The preset file is too large')
             data = json.loads(path.read_text(encoding='utf-8'))
             if (not isinstance(data, dict) or data.get('version') != 1
                     or not isinstance(data.get('presets'), list) or len(data['presets']) > 128):
-                raise ValueError('プリセットファイルの形式に対応していません')
+                raise ValueError('Unsupported preset file format')
             ids = {v[0] for v in BUILTINS}
             names = set()
             for p in data['presets']:
@@ -81,16 +82,16 @@ def register():
                         or len(p['id']) != 37 or p['id'] in ids
                         or not isinstance(p['name'], str) or not 1 <= len(p['name']) <= 64
                         or any(ord(c) < 32 for c in p['name']) or p['name'] in names):
-                    raise ValueError('ユーザープリセットが正しくありません')
+                    raise ValueError('Invalid user preset')
                 uuid.UUID(p['id'][5:])
                 p['values'] = validate(p['values'])
                 ids.add(p['id']); names.add(p['name'])
             data['values'] = validate(data.get('values'))
             if not isinstance(data.get('last'), str) or data['last'] not in ids:
-                raise ValueError('前回のプリセットを読み込めません')
+                raise ValueError('Could not load the last-used preset')
             _state = {key: data[key] for key in ('version', 'presets', 'last', 'values')}
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
-        _error = 'プリセットを読み込めませんでした。保存済みファイルは変更しません'
+        _error = 'Could not load presets. The saved file has been kept unchanged'
     rebuild_items()
 
 
@@ -149,11 +150,11 @@ def remember(key, values):
 def save(name, values):
     name = name.strip()
     if not name or len(name) > 64 or any(ord(c) < 32 for c in name):
-        raise ValueError('名前を1～64文字で指定してください')
-    if any(name == p['name'] for p in _state['presets']) or any(name == p[1] for p in BUILTINS):
-        raise ValueError('同じ名前のプリセットがあります。別の名前を指定してください')
+        raise ValueError('Use a name of 1 to 64 characters')
+    if any(name == p['name'] for p in _state['presets']) or any(name in (p[1], JA[p[1]]) for p in BUILTINS):
+        raise ValueError('A preset with this name already exists. Choose another name')
     if len(_state['presets']) >= 128:
-        raise ValueError('ユーザープリセットは128件まで保存できます')
+        raise ValueError('You can save up to 128 user presets')
     state = copy.deepcopy(_state)
     key = 'USER_' + uuid.uuid4().hex
     values = validate(values)
@@ -166,7 +167,7 @@ def save(name, values):
 def remove(key):
     state = copy.deepcopy(_state)
     if not any(p['id'] == key for p in state['presets']):
-        raise ValueError('削除するユーザープリセットがありません')
+        raise ValueError('The user preset to remove does not exist')
     state['presets'] = [p for p in state['presets'] if p['id'] != key]
     if state['last'] == key:
         state.update(last=BUILTINS[0][0], values=dict(BUILTINS[0][2]))

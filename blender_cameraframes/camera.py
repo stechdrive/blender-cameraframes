@@ -226,23 +226,23 @@ def shared_between_scenes(obj):
 
 def check_camera(obj):
     if not obj or obj.type != 'CAMERA':
-        raise ValueError('カメラオブジェクトを選択してください')
+        raise ValueError('Select a camera object')
     if obj.library or obj.override_library or obj.data.library or obj.data.override_library:
-        raise ValueError('ローカルのカメラを使用してください（リンク・オーバーライドは未対応）')
+        raise ValueError('Use a local camera; linked cameras and library overrides are not supported')
     if shared_between_scenes(obj):
-        raise ValueError('複数シーンで共有されたカメラです。先にオブジェクトを複製してください')
+        raise ValueError('This camera is shared by multiple scenes. Duplicate the object first')
     if obj.data.type not in {'PERSP', 'ORTHO'}:
-        raise ValueError('透視または正投影のカメラを使用してください')
+        raise ValueError('Use a perspective or orthographic camera')
 
 
 def check_resize(scene, obj):
     check_camera(obj)
     if obj.data.users > 1:
-        raise ValueError('Cameraデータが共有されています。登録解除して再登録すると独立します')
+        raise ValueError('Camera data is shared. Remove and re-register this camera to make it independent')
     if obj.data.animation_data:
-        raise ValueError('Cameraデータにアニメーションがあります。用紙変更には静的な投影設定が必要です')
+        raise ValueError('Camera data is animated. Resizing the paper requires static projection settings')
     if not synced(scene, obj):
-        raise ValueError('用紙と出力設定が異なります。「用紙サイズを出力に反映」を先に実行してください')
+        raise ValueError('Paper and output settings differ. Use Apply Paper Size to Output first')
 
 
 def synced(scene, obj):
@@ -280,18 +280,18 @@ def bounds(scene, obj):
 def check_frame_focal(scene, obj):
     check_camera(obj)
     if obj.data.type != 'PERSP':
-        raise ValueError('35mm換算の指定は透視投影のカメラで使用してください')
+        raise ValueError('Use a perspective camera to set a 35mm equivalent focal length')
     if obj.data.users > 1:
-        raise ValueError('Cameraデータが共有されています。登録解除して再登録すると独立します')
+        raise ValueError('Camera data is shared. Remove and re-register this camera to make it independent')
     if obj.data.animation_data:
-        raise ValueError('Cameraデータにアニメーションまたはドライバーがあります。静的なカメラで適用してください')
+        raise ValueError('Camera data has animation or drivers. Use a camera with static projection settings')
     if not synced(scene, obj):
-        raise ValueError('用紙と出力設定が異なります。「用紙サイズを出力に反映」を先に実行してください')
+        raise ValueError('Paper and output settings differ. Use Apply Paper Size to Output first')
     s = obj.cf_camera
     if not s.frames:
-        raise ValueError('撮影FRAMEを追加してください')
+        raise ValueError('Add a shooting FRAME first')
     if len(frames.selected_indices(s)) != 1:
-        raise ValueError('画角の基準にするFRAMEを1枚選択してください')
+        raise ValueError('Select exactly one FRAME as the field-of-view reference')
 
 
 def frame_lens_values(scene, obj):
@@ -299,7 +299,7 @@ def frame_lens_values(scene, obj):
     s = obj.cf_camera
     frame = frames.active(s)
     if frame is None:
-        raise ValueError('画角の基準にするFRAMEを選択してください')
+        raise ValueError('Select a FRAME as the field-of-view reference')
     return geometry.frame_lens(frame, s.ratio_x / s.ratio_y, bounds(scene, obj),
                                s.width, s.height, s.frame_lens_axis, s.lens_reference)
 
@@ -308,7 +308,7 @@ def set_frame_angle(scene, obj, target, *, clamp=False):
     """Convert the selected angle into a lens scale, independently of the mm basis."""
     check_frame_focal(scene, obj)
     if not math.isfinite(target) or not 0 < target < 180:
-        raise ValueError('基準画角には0°より大きく180°より小さい値を指定してください')
+        raise ValueError('Field of view must be greater than 0 and less than 180 degrees')
     focal, angle = frame_lens_values(scene, obj)
     target_focal = focal * math.tan(math.radians(angle) / 2) / math.tan(math.radians(target) / 2)
     return _set_frame_focal(scene, obj, target_focal, clamp=clamp)
@@ -322,10 +322,10 @@ def set_frame_focal(scene, obj, target, *, clamp=False):
 
 def _set_frame_focal(scene, obj, target, *, clamp):
     if not math.isfinite(target) or target <= 0:
-        raise ValueError('換算焦点距離には正の数を指定してください')
+        raise ValueError('Equivalent focal length must be positive')
     current = frame_lens_values(scene, obj)[0]
     if not math.isfinite(current) or current <= 0:
-        raise ValueError('FRAMEの画角を計算できません')
+        raise ValueError('Could not calculate the FRAME field of view')
     old = obj.data.lens
     value = old * target / current
     prop = obj.data.bl_rna.properties['lens']
@@ -333,14 +333,14 @@ def _set_frame_focal(scene, obj, target, *, clamp):
         value = max(prop.hard_min, min(prop.hard_max, value))
         target = current * value / old
     if not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max:
-        raise ValueError('目標値はBlenderの焦点距離の対応範囲外です')
+        raise ValueError("The requested focal length is outside Blender's supported range")
     if value == old:
         return old
     try:
         obj.data.lens = value
         actual = frame_lens_values(scene, obj)[0]
         if not math.isfinite(actual) or abs(actual - target) > max(1e-4, target * 1e-5):
-            raise ValueError('目標値に合わせられませんでした。カメラ設定を確認してください')
+            raise ValueError('Could not reach the requested value. Check the camera settings')
     except Exception:
         obj.data.lens = old
         raise
@@ -370,7 +370,7 @@ def register_camera(scene, obj):
             return obj
     s, r = obj.cf_camera, scene.render
     if not s.uid and not (4 <= r.resolution_x <= 30000 and 4 <= r.resolution_y <= 30000):
-        raise ValueError('用紙は4～30000pxに対応しています')
+        raise ValueError('Paper dimensions must be between 4 and 30000 pixels')
     if obj.data.users > 1:
         obj.data = obj.data.copy()
     # Native duplicates retain settings, but must receive a fresh identity.
@@ -459,7 +459,7 @@ def resize(scene, obj, width, height):
     """Translation in pixel space, preserving ray direction per original pixel."""
     check_resize(scene, obj)
     if not (4 <= width <= 30000 and 4 <= height <= 30000):
-        raise ValueError('用紙の対応範囲は4～30000pxです')
+        raise ValueError('Supported paper dimensions are 4 to 30000 pixels')
     s, data = obj.cf_camera, obj.data
     l, r, b, t = bounds(scene, obj)
     ax, ay = int(s.paper_anchor) % 3 / 2, int(s.paper_anchor) // 3 / 2
@@ -473,10 +473,10 @@ def resize(scene, obj, width, height):
     for key, value in values.items():
         prop = data.bl_rna.properties[key]
         if isinstance(value, (int, float)) and (not math.isfinite(value) or not prop.hard_min <= value <= prop.hard_max):
-            raise ValueError('カメラ投影設定の上限に達しました。用紙サイズを小さく変更してください')
+            raise ValueError('Camera projection limit reached. Reduce the paper dimensions')
     for frame in s.frames:
         if not (-1000000 <= frame.x + left <= 1000000 and -1000000 <= frame.y + top <= 1000000):
-            raise ValueError('FRAMEの座標上限に達しました')
+            raise ValueError('FRAME coordinate limit reached')
     for key, value in values.items():
         setattr(data, key, value)
     for frame in s.frames:
@@ -540,12 +540,12 @@ def export_auxiliary(scene, obj):
     axis, horizon = auxiliary(scene, obj, include_axis=s.export_axis, include_horizon=s.export_horizon)
     omitted = []
     if s.export_axis and not (0 <= axis[0] <= s.width and 0 <= axis[1] <= s.height):
-        omitted.append('光軸: 用紙外のため出力なし')
+        omitted.append('Optical axis omitted: outside the paper')
     if s.export_horizon:
         if obj.data.type != 'PERSP':
-            omitted.append('アイレベル: 正投影では出力なし')
+            omitted.append('Eye level omitted: orthographic camera')
         elif horizon_normal(obj) is None:
-            omitted.append('アイレベル: カメラ変換が退化しているため出力なし')
+            omitted.append('Eye level omitted: degenerate camera transform')
         elif horizon is None:
-            omitted.append('アイレベル: 用紙内にないため出力なし')
+            omitted.append('Eye level omitted: outside the paper')
     return axis, horizon, omitted

@@ -159,16 +159,16 @@ def write_psd(path, width, height, ppi, layers, progress=None, *, mask_layer=Non
     `layers` are ordered bottom-to-top. Dimensions are the actual output pixels.
     """
     if not (4 <= width <= 30000 and 4 <= height <= 30000 and width * height <= MAX_PIXELS):
-        raise ValueError('PSDは各辺4～30000px、合計6400万画素までです')
+        raise ValueError('PSD dimensions must be 4 to 30000 pixels per side, up to 64 million pixels total')
     if not math.isfinite(ppi) or not 1 <= ppi <= 10000:
-        raise ValueError('PPIは1～10000です')
+        raise ValueError('PPI must be between 1 and 10000')
     layers = list(layers)
     if mask_layer is not None:
         if not math.isfinite(mask_layer[1]) or not 0 <= mask_layer[1] <= 1:
-            raise ValueError('マスク不透明度は0～100%です')
+            raise ValueError('Mask opacity must be between 0 and 100%')
         layers.insert(0, ('通過範囲マスク', (0, 0, 0), None, mask_layer))
     if not layers or len(layers) > 132:
-        raise ValueError('出力するガイドを1～132レイヤーにしてください')
+        raise ValueError('Export between 1 and 132 guide layers')
     path = Path(path)
     output_tmp = None
     try:

@@ -65,31 +65,31 @@ def pixel_alignment(frames, ratio, scale, reference=0):
     """
     tolerance = 1e-4
     if not frames or not all(isfinite(v) and v > 0 for v in (*scale, ratio)):
-        raise ValueError('ピクセル合わせの対象がありません')
+        raise ValueError('No FRAMEs selected for pixel alignment')
     bounds = []
     for f in frames:
         quarter = round(f.angle / (pi / 2))
         if abs(f.angle - quarter * pi / 2) > max(1, abs(f.angle)) * 6e-8:
-            raise ValueError('水平・垂直のFRAMEを選択してください。回転は変更しません')
+            raise ValueError('Select axis-aligned FRAMEs. Pixel alignment keeps their rotation')
         points = [(x * scale[0], y * scale[1]) for x, y in corners(f, ratio)]
         for a, b in zip(points, points[1:] + points[:1]):
             if min(abs(a[0] - b[0]), abs(a[1] - b[1])) > .001:
-                raise ValueError('水平・垂直のFRAMEを選択してください。回転は変更しません')
+                raise ValueError('Select axis-aligned FRAMEs. Pixel alignment keeps their rotation')
         w, h = (f.width, f.width / ratio) if quarter % 2 == 0 else (f.width / ratio, f.width)
         left, right = (f.x - w / 2) * scale[0], (f.x + w / 2) * scale[0]
         top, bottom = (f.y - h / 2) * scale[1], (f.y + h / 2) * scale[1]
         if any(abs(v - round(v)) > tolerance for v in (right - left, bottom - top)):
-            raise ValueError('現在の出力倍率では内寸が整数pxになりません。寸法は変更しません')
+            raise ValueError('Inner dimensions are not whole pixels at the current output scale. Pixel alignment keeps their size')
         bounds.append((left, top, right, bottom))
     left, top = bounds[reference][:2]
     delta = (round(left) - left, round(top) - top)
     if any(abs(edge + delta[i % 2] - round(edge + delta[i % 2])) > tolerance
            for box in bounds for i, edge in enumerate(box)):
-        raise ValueError('位置関係を保って一緒に合わせられません。FRAMEを1枚ずつ選択してください')
+        raise ValueError('Cannot align these FRAMEs together while preserving relative positions. Select one at a time')
     result = (delta[0] / scale[0], delta[1] / scale[1])
     if any(abs(value + change) > FRAME_COORD_LIMIT for f in frames
            for value, change in zip((f.x, f.y), result)):
-        raise ValueError('FRAMEの座標上限のため合わせられません')
+        raise ValueError('Pixel alignment would exceed the FRAME coordinate limit')
     return result
 
 
@@ -100,7 +100,7 @@ def outward_edges(points):
         dx, dy = b[0] - a[0], b[1] - a[1]
         length = hypot(dx, dy)
         if length <= 0:
-            raise ValueError('FRAMEの辺の長さが不正です')
+            raise ValueError('Invalid FRAME edge length')
         result.append((dy / length, -dx / length))
     return result
 
@@ -113,7 +113,7 @@ def outset_corners(points, distance):
         a, b = normals[i - 1], normals[i]
         denominator = 1 + a[0] * b[0] + a[1] * b[1]
         if denominator <= 1e-12:
-            raise ValueError('FRAMEの形状が不正です')
+            raise ValueError('Invalid FRAME shape')
         result.append((point[0] + distance * (a[0] + b[0]) / denominator,
                        point[1] + distance * (a[1] + b[1]) / denominator))
     return result
@@ -134,11 +134,11 @@ def transform_frames(frames, operation, pivot_point, *, delta=(0, 0), factor=1, 
     if not frames:
         return []
     if not all(isfinite(v) for v in (*pivot_point, *delta, factor, turn)):
-        raise ValueError('変形の値が無効です')
+        raise ValueError('Invalid transform values')
     limit = FRAME_COORD_LIMIT
     px, py = pivot_point
     if operation != 'MOVE' and max(abs(px), abs(py)) > limit + 0.25:
-        raise ValueError('基点の座標上限に達しました。基点を置き直してください')
+        raise ValueError('Pivot coordinate limit reached. Reposition the pivot')
     if operation == 'MOVE':
         dx, dy = (max(-limit - min(f[key] for f in frames),
                       min(limit - max(f[key] for f in frames), value))
@@ -153,10 +153,10 @@ def transform_frames(frames, operation, pivot_point, *, delta=(0, 0), factor=1, 
                     a, b = (-limit - p) / offset, (limit - p) / offset
                     low, high = max(low, min(a, b)), min(high, max(a, b))
         if low > high:
-            raise ValueError('選択FRAMEをまとめて拡縮できる範囲を超えています')
+            raise ValueError('The selected FRAMEs cannot be scaled together within the supported range')
         factor = max(low, min(high, factor))
     elif operation != 'ROTATE':
-        raise ValueError('未対応のFRAME変形です')
+        raise ValueError('Unsupported FRAME transform')
     result = []
     for f in frames:
         if operation == 'MOVE':
@@ -172,9 +172,9 @@ def transform_frames(frames, operation, pivot_point, *, delta=(0, 0), factor=1, 
                       'handle_in': rotate(f['handle_in'], turn), 'handle_out': rotate(f['handle_out'], turn)}
         flat = [v for value in values.values() for v in (value if isinstance(value, tuple) else (value,))]
         if not all(isfinite(v) and abs(v) <= 3e38 for v in flat):
-            raise ValueError('FRAME変形の数値範囲を超えています')
+            raise ValueError('FRAME transform is out of range')
         if max(abs(values['x']), abs(values['y'])) > limit + 1e-7:
-            raise ValueError('FRAMEの座標上限に達しました')
+            raise ValueError('FRAME coordinate limit reached')
         result.append(values)
     return result
 
@@ -242,10 +242,10 @@ def sample_motion(key):
     result = []
     try:
         if not isfinite(ratio) or ratio <= 0:
-            raise ValueError('FRAMEの縦横比が無効です')
+            raise ValueError('Invalid FRAME aspect ratio')
         for f in frames:
             if not all(isfinite(v) for v in (*f[:4], *f[4][0], *f[4][1])) or f[2] <= 0:
-                raise ValueError('FRAMEまたは軌道の値が無効です')
+                raise ValueError('Invalid FRAME or motion path values')
         if frames:
             f = frames[0]
             result.append((f[:2], motion_rectangle(f[:2], f[2], f[3], ratio)))
@@ -260,7 +260,7 @@ def sample_motion(key):
             acceleration += radius * (2 * abs(g[2] - f[2]) * abs(turn) + max(f[2], g[2]) * turn * turn)
             count = max(1, ceil(sqrt(acceleration / (8 * MOTION_ERROR))), ceil(abs(turn) / (pi / 12)))
             if len(result) + count > MAX_MOTION_SAMPLES:
-                raise ValueError('軌道が複雑すぎます。FRAMEの大きさ・縦横比・ハンドルを小さくしてください')
+                raise ValueError('The motion path is too complex. Reduce FRAME sizes, aspect ratio or handle lengths')
             for j in range(1, count + 1):
                 t = j / count
                 p = cubic(a, b, c, d, t) if curved else tuple(a[k] + (d[k] - a[k]) * t for k in (0, 1))

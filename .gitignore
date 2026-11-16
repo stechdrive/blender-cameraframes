@@ -12,6 +12,7 @@
 !/.github/workflows/extension-index.yml
 !/.gitignore
 !/LICENSE
+!/README.en.md
 !/README.md
 !/blender_cameraframes/__init__.py
 !/blender_cameraframes/blender_manifest.toml
@@ -26,6 +27,7 @@
 !/blender_cameraframes/presets.py
 !/blender_cameraframes/properties.py
 !/blender_cameraframes/psd.py
+!/blender_cameraframes/translations.py
 !/blender_cameraframes/ui.py
 !/docs/images/composition-expansion.png
 !/docs/images/create-camera-0.1.16.png

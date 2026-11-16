@@ -2,6 +2,7 @@
 """Camera creation and explicit user-preset operations."""
 import math
 import bpy
+from .translations import CONTEXT, PRESET_CONTEXT, iface, data_name, report as rpt
 from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 from . import camera, frames, presets
 
@@ -10,7 +11,7 @@ def from_camera(obj):
     s = obj.cf_camera
     f = frames.active(s)
     if len(frames.selected_indices(s)) != 1 or f is None:
-        raise ValueError('保存するFRAMEを1枚選択してください')
+        raise ValueError('Select one FRAME to save in the preset')
     return presets.validate(dict(width=s.width, height=s.height, frame_width=f.width,
         ratio_x=s.ratio_x, ratio_y=s.ratio_y, ppi=s.ppi,
         offset_x=f.x - s.width / 2, offset_y=f.y - s.height / 2))
@@ -33,7 +34,7 @@ def create(context, values, *, name='Camera'):
     collection = layer.collection
     if (not layer.is_visible or collection.library or collection.override_library
             or not collection_selectable(context.view_layer, layer)):
-        raise ValueError('追加先に、表示・選択できるローカルのコレクションを選んでください')
+        raise ValueError('Choose a visible, selectable local collection for the new camera')
     scene, render = context.scene, context.scene.render
     previous_camera, previous_index = scene.camera, scene.cf_scene.active_index
     previous_render = {k: getattr(render, k) for k in camera.RENDER}
@@ -49,7 +50,7 @@ def create(context, values, *, name='Camera'):
         obj = bpy.data.objects.new(name, data)
         collection.objects.link(obj)
         if not obj.visible_get(view_layer=context.view_layer):
-            raise ValueError('追加先のコレクションが非表示です')
+            raise ValueError('The destination collection is hidden')
         if rv:
             obj.matrix_world = rv.view_matrix.inverted()
             source = (space.camera if space.use_local_camera else previous_camera)
@@ -75,7 +76,7 @@ def create(context, values, *, name='Camera'):
         f.x, f.y = s.width / 2 + v['offset_x'], s.height / 2 + v['offset_y']
         camera.activate(context, obj)
         if context.view_layer.objects.active != obj:
-            raise ValueError('追加先のコレクションではカメラを選択できません')
+            raise ValueError('The camera cannot be selected in the destination collection')
         if rv:
             if space.use_local_camera:
                 space.camera = obj
@@ -106,22 +107,23 @@ def use_preset(self, _context):
 
 
 class CF_OT_create_camera(bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.create_camera'
-    bl_label = 'カメラを新規作成'
-    bl_description = '現在のコレクションに、用紙サイズとFRAME Aを設定したカメラを作成します'
+    bl_label = 'Create Camera'
+    bl_description = 'Create a camera with paper dimensions and FRAME A in the active collection'
     bl_options = {'UNDO'}
-    camera_name: StringProperty(name='カメラ名', default='Camera', options={'SKIP_SAVE'},
-        description='作成するカメラオブジェクトの名前。作成後も一覧やアウトライナーで変更できます')
-    preset: EnumProperty(name='プリセット', items=presets.items, update=use_preset)
-    width: IntProperty(name='用紙 幅', default=1754, min=4, max=30000)
-    height: IntProperty(name='高さ', default=1240, min=4, max=30000)
-    frame_width: FloatProperty(name='FRAME 幅', default=1536, min=1, max=1e6, precision=3)
-    frame_height: FloatProperty(name='高さ', default=864, min=.00001, max=1e11, precision=3)
+    camera_name: StringProperty(name='Camera Name', default='Camera', options={'SKIP_SAVE'},
+        description='Name of the new camera object. You can rename it later in this list or the Outliner', translation_context=CONTEXT)
+    preset: EnumProperty(name='Preset', items=presets.items, update=use_preset, translation_context=PRESET_CONTEXT)
+    width: IntProperty(name='Paper Width', default=1754, min=4, max=30000, translation_context=CONTEXT)
+    height: IntProperty(name='Height', default=1240, min=4, max=30000, translation_context=CONTEXT)
+    frame_width: FloatProperty(name='FRAME Width', default=1536, min=1, max=1e6, precision=3, translation_context=CONTEXT)
+    frame_height: FloatProperty(name='Height', default=864, min=.00001, max=1e11, precision=3, translation_context=CONTEXT)
     ratio_x: FloatProperty(default=16, options={'HIDDEN'})
     ratio_y: FloatProperty(default=9, options={'HIDDEN'})
-    offset_x: FloatProperty(name='横', description='用紙の中央から右へ移動するピクセル数', min=-1e6, max=1e6, precision=3)
-    offset_y: FloatProperty(name='縦', description='用紙の中央から下へ移動するピクセル数', min=-1e6, max=1e6, precision=3)
-    ppi: FloatProperty(name='PSDのPPI', default=150, min=1, max=10000)
+    offset_x: FloatProperty(name='X', description='Horizontal offset from the paper center, in pixels; positive to the right', min=-1e6, max=1e6, precision=3, translation_context=CONTEXT)
+    offset_y: FloatProperty(name='Y', description='Vertical offset from the paper center, in pixels; positive downward', min=-1e6, max=1e6, precision=3, translation_context=CONTEXT)
+    ppi: FloatProperty(name='PSD PPI', default=150, min=1, max=10000, translation_context=CONTEXT)
 
     @classmethod
     def poll(cls, context):
@@ -157,32 +159,34 @@ class CF_OT_create_camera(bpy.types.Operator):
         row = layout.row(align=True)
         row.prop(self, 'frame_width'); row.prop(self, 'frame_height')
         row = layout.row(align=True)
-        row.label(text='中央から (px)')
+        row.label(text='Offset (px)', text_ctxt=CONTEXT)
         row.prop(self, 'offset_x'); row.prop(self, 'offset_y')
         layout.prop(self, 'ppi')
-        layout.label(text='追加先: ' + context.view_layer.active_layer_collection.collection.name, icon='OUTLINER_COLLECTION', translate=False)
+        layout.label(text=iface('Collection: {name}', name=context.view_layer.active_layer_collection.collection.name),
+                     icon='OUTLINER_COLLECTION', translate=False)
         if presets._error:
-            layout.label(text='保存済みプリセットを読み込めません', icon='ERROR')
+            layout.label(text='Could not load saved presets', icon='ERROR', text_ctxt=CONTEXT)
 
     def execute(self, context):
         try:
             values = self.values()
             create(context, values, name=self.camera_name)
         except (ValueError, RuntimeError) as error:
-            self.report({'ERROR'}, str(error))
+            self.report({'ERROR'}, rpt(str(error)))
             return {'CANCELLED'}
         try:
             presets.remember(self.preset, values)
         except (OSError, ValueError):
-            self.report({'WARNING'}, 'カメラを作成しましたが、前回の入力値を保存できませんでした')
+            self.report({'WARNING'}, rpt('Camera created, but the last-used values could not be saved'))
         return {'FINISHED'}
 
 
 class CF_OT_save_camera_preset(bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.save_camera_preset'
-    bl_label = '用紙と選択FRAMEをプリセットに保存'
-    bl_description = '用紙サイズ・選択FRAMEの内寸と中央からの位置・PPIを、新規作成用に保存します'
-    name: StringProperty(name='名前', maxlen=64)
+    bl_label = 'Save Paper and FRAME Preset'
+    bl_description = "Save the paper dimensions, selected FRAME's inner size and center offset, and PPI for new cameras"
+    name: StringProperty(name='Name', maxlen=64, translation_context=CONTEXT)
 
     @classmethod
     def poll(cls, context):
@@ -190,7 +194,7 @@ class CF_OT_save_camera_preset(bpy.types.Operator):
         return bool(obj and len(frames.selected_indices(obj.cf_camera)) == 1)
 
     def invoke(self, context, event):
-        self.name = '用紙プリセット'
+        self.name = data_name('Paper Preset')
         return context.window_manager.invoke_props_dialog(self, width=360)
 
     def draw(self, context):
@@ -200,16 +204,17 @@ class CF_OT_save_camera_preset(bpy.types.Operator):
         try:
             presets.save(self.name, from_camera(camera.active(context.scene)))
         except (ValueError, OSError) as error:
-            self.report({'ERROR'}, str(error) if isinstance(error, ValueError) else 'プリセットを保存できませんでした')
+            self.report({'ERROR'}, rpt(str(error) if isinstance(error, ValueError) else 'Could not save the preset'))
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 class CF_OT_remove_camera_preset(bpy.types.Operator):
+    bl_translation_context = CONTEXT
     bl_idname = 'cf.remove_camera_preset'
-    bl_label = 'ユーザープリセットを削除'
-    bl_description = '選んだユーザープリセットを削除します。作成済みのカメラには影響しません'
-    preset: EnumProperty(name='プリセット', items=presets.user_items)
+    bl_label = 'Remove User Preset'
+    bl_description = 'Remove the selected user preset. Existing cameras are kept'
+    preset: EnumProperty(name='Preset', items=presets.user_items, translation_context=PRESET_CONTEXT)
 
     @classmethod
     def poll(cls, context):
@@ -226,13 +231,14 @@ class CF_OT_remove_camera_preset(bpy.types.Operator):
         try:
             presets.remove(self.preset)
         except (ValueError, OSError):
-            self.report({'ERROR'}, 'プリセットを削除できませんでした')
+            self.report({'ERROR'}, rpt('Could not remove the preset'))
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 class CF_MT_camera_presets(bpy.types.Menu):
-    bl_label = 'カメラ作成プリセット'
+    bl_translation_context = CONTEXT
+    bl_label = 'Camera Presets'
     def draw(self, context):
         self.layout.operator('cf.save_camera_preset', icon='PRESET_NEW')
         self.layout.operator('cf.remove_camera_preset', icon='REMOVE')

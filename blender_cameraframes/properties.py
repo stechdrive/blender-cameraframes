@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
+from .translations import CONTEXT
 from . import geometry, frames
 from math import atan, degrees, radians
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty,
@@ -107,132 +108,132 @@ def set_path_points(self, value):
 
 
 class CFFrame(bpy.types.PropertyGroup):
-    name: StringProperty(name='名前', default='FRAME')
-    x: FloatProperty(name='X', default=0, min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT, update=redraw)
-    y: FloatProperty(name='Y', default=0, min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT, update=redraw)
-    width: FloatProperty(name='幅 px', default=1536, min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH, update=redraw)
-    angle: FloatProperty(name='回転', subtype='ANGLE', update=redraw)
-    anchor: FloatVectorProperty(name='基点', size=2, default=(0, 0), update=redraw)
-    selected: BoolProperty(name='選択', default=False, get=frames.get_selected, set=frames.set_selected, update=redraw,
-                          description='操作するFRAMEを選びます。チェックで複数選択、行のクリックで1枚選択します')
-    visible: BoolProperty(name='ビューに表示', default=True, update=visibility_changed,
-                          description='このFRAMEの枠線をビューに表示します。PSDの出力設定は変えません')
-    export: BoolProperty(name='PSDに書き出す', default=True,
-                         description='このFRAMEの枠線をPSDの独立レイヤーに書き出します。ビューの表示とは別に設定できます')
-    color: FloatVectorProperty(name='色', size=3, subtype='COLOR', min=0, max=1, default=geometry.FRAME_COLORS[0],
-                              get=get_frame_color, set=set_frame_color, update=redraw)
-    handle_mode: EnumProperty(name='ハンドル', items=[
-        ('AUTO', '自動', '前後のFRAMEから滑らかな接線を計算します', 0),
-        ('CORNER', '折れ', 'このFRAMEで軌道を折り、前後のハンドルを中心に縮めます', 1),
-        ('MIRRORED', '対称', '前後のハンドルを同じ長さ・反対向きに連動させます', 2),
-        ('FREE', '自由', '前後のハンドルを別々に操作します', 3)],
-        default='AUTO', get=get_handle_mode, set=set_handle_mode, update=redraw)
-    handle_in: FloatVectorProperty(name='前のFRAME側', size=2, default=(-100, 0), update=redraw)
-    handle_out: FloatVectorProperty(name='次のFRAME側', size=2, default=(100, 0), update=redraw)
+    name: StringProperty(name='Name', default='FRAME', translation_context=CONTEXT)
+    x: FloatProperty(name='X', default=0, min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT, update=redraw, translation_context=CONTEXT)
+    y: FloatProperty(name='Y', default=0, min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT, update=redraw, translation_context=CONTEXT)
+    width: FloatProperty(name='Width (px)', default=1536, min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH, update=redraw, translation_context=CONTEXT)
+    angle: FloatProperty(name='Rotate', subtype='ANGLE', update=redraw, translation_context=CONTEXT)
+    anchor: FloatVectorProperty(name='Pivot', size=2, default=(0, 0), update=redraw, translation_context=CONTEXT)
+    selected: BoolProperty(name='Select', default=False, get=frames.get_selected, set=frames.set_selected, update=redraw,
+                          description='Select FRAMEs to edit. Use checkboxes for multiple selection, or click a row to select one', translation_context=CONTEXT)
+    visible: BoolProperty(name='Show in View', default=True, update=visibility_changed,
+                          description='Show this FRAME outline in the viewport, independently of PSD export', translation_context=CONTEXT)
+    export: BoolProperty(name='Export to PSD', default=True,
+                         description='Export this FRAME outline as a separate PSD layer, independently of viewport visibility', translation_context=CONTEXT)
+    color: FloatVectorProperty(name='Color', size=3, subtype='COLOR', min=0, max=1, default=geometry.FRAME_COLORS[0],
+                              get=get_frame_color, set=set_frame_color, update=redraw, translation_context=CONTEXT)
+    handle_mode: EnumProperty(name='Handles', items=[
+        ('AUTO', 'Auto', 'Calculate smooth tangents from the neighboring FRAMEs', 0),
+        ('CORNER', 'Corner', 'Make a sharp corner at this FRAME by collapsing both handles to its center', 1),
+        ('MIRRORED', 'Mirrored', 'Keep both handles at equal lengths in opposite directions', 2),
+        ('FREE', 'Free', 'Edit the incoming and outgoing handles independently', 3)],
+        default='AUTO', get=get_handle_mode, set=set_handle_mode, update=redraw, translation_context=CONTEXT)
+    handle_in: FloatVectorProperty(name='Incoming', size=2, default=(-100, 0), update=redraw, translation_context=CONTEXT)
+    handle_out: FloatVectorProperty(name='Outgoing', size=2, default=(100, 0), update=redraw, translation_context=CONTEXT)
 
 
 class CFCamera(bpy.types.PropertyGroup):
     uid: StringProperty()
-    width: IntProperty(name='用紙幅', min=4, max=30000, default=1920)
-    height: IntProperty(name='用紙高さ', min=4, max=30000, default=1080)
+    width: IntProperty(name='Paper Width', min=4, max=30000, default=1920, translation_context=CONTEXT)
+    height: IntProperty(name='Paper Height', min=4, max=30000, default=1080, translation_context=CONTEXT)
     aspect_x: FloatProperty(default=1, min=1, max=200)
     aspect_y: FloatProperty(default=1, min=1, max=200)
     ppi: FloatProperty(name='PPI', default=150, min=1, max=10000,
-                       description='PSDに記録する解像度です。画像のピクセル数は変えません')
-    paper_anchor: EnumProperty(name='用紙の固定基点', description='用紙サイズを変更するとき、構図を固定する位置を選びます', items=[
-        (str(i), n, '') for i, n in enumerate(('左上', '上', '右上', '左', '中央', '右', '左下', '下', '右下'))], default='4')
-    aspect_lock: BoolProperty(name='用紙の縦横比を固定', default=False)
+                       description='Resolution stored in the PSD. Does not change the pixel dimensions', translation_context=CONTEXT)
+    paper_anchor: EnumProperty(name='Paper Anchor', description='Choose the point that stays fixed when resizing the paper', items=[
+        (str(i), n, '') for i, n in enumerate(('Top Left', 'Top', 'Top Right', 'Left', 'Center', 'Right', 'Bottom Left', 'Bottom', 'Bottom Right'))], default='4', translation_context=CONTEXT)
+    aspect_lock: BoolProperty(name='Lock Paper Aspect', default=False, translation_context=CONTEXT)
     origin: FloatVectorProperty(size=2)
     frames: CollectionProperty(type=CFFrame)
     next_frame_color: IntProperty(default=-1, min=-1, max=len(geometry.FRAME_COLORS)-1, options={'HIDDEN'})
-    show_frame_names: BoolProperty(name='名前', default=True, update=redraw,
-                                  description='FRAME編集・操作中に、選択または操作対象の名前を表示します。オフにすると常に非表示です')
+    show_frame_names: BoolProperty(name='Name', default=True, update=redraw,
+                                  description='Show names for selected FRAMEs while editing. Disable to always hide names', translation_context=CONTEXT)
     frame_index: IntProperty(default=-1, min=-1, get=frames.active_index, set=frames.select_row, update=redraw)
-    edit_x: FloatProperty(name='中心X', min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT,
+    edit_x: FloatProperty(name='Center X', min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT,
         get=lambda s: frames.value(s, 'x'), set=lambda s, v: frames.set_value(s, 'x', v), update=redraw, options={'SKIP_SAVE'},
-        description='用紙左上からの中心X座標（px）。複数選択では位置関係を保って全体を移動します')
-    edit_y: FloatProperty(name='中心Y', min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT,
+        description="Center X in pixels from the paper's top left. Multiple FRAMEs move together, preserving their relative positions", translation_context=CONTEXT)
+    edit_y: FloatProperty(name='Center Y', min=-geometry.FRAME_COORD_LIMIT, max=geometry.FRAME_COORD_LIMIT,
         get=lambda s: frames.value(s, 'y'), set=lambda s, v: frames.set_value(s, 'y', v), update=redraw, options={'SKIP_SAVE'},
-        description='用紙左上からの中心Y座標（px）。下向きが正。複数選択では位置関係を保って全体を移動します')
-    edit_width: FloatProperty(name='幅', min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH,
+        description="Center Y in pixels from the paper's top left, positive downward. Multiple FRAMEs move together, preserving their relative positions", translation_context=CONTEXT)
+    edit_width: FloatProperty(name='Width', min=geometry.FRAME_MIN_WIDTH, max=geometry.FRAME_MAX_WIDTH,
         get=lambda s: frames.value(s, 'width'), set=lambda s, v: frames.set_value(s, 'width', v), update=redraw, options={'SKIP_SAVE'},
-        description='枠線を含まない内側の幅（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
-    edit_height: FloatProperty(name='高さ', min=0.00001, max=1e11,
+        description="Inner width in pixels, excluding the outline. Scales at a fixed aspect ratio. Multiple FRAMEs scale together around the active row's pivot", translation_context=CONTEXT)
+    edit_height: FloatProperty(name='Height', min=0.00001, max=1e11,
         get=lambda s: frames.value(s, 'height'), set=lambda s, v: frames.set_value(s, 'height', v), update=redraw, options={'SKIP_SAVE'},
-        description='枠線を含まない内側の高さ（px）。縦横比を保って拡縮します。複数選択では青い行のFRAMEの基点から全体を同じ倍率で拡縮します')
-    edit_angle: FloatProperty(name='回転', subtype='ANGLE',
+        description="Inner height in pixels, excluding the outline. Scales at a fixed aspect ratio. Multiple FRAMEs scale together around the active row's pivot", translation_context=CONTEXT)
+    edit_angle: FloatProperty(name='Rotate', subtype='ANGLE',
         get=lambda s: frames.value(s, 'angle'), set=lambda s, v: frames.set_value(s, 'angle', v), update=redraw, options={'SKIP_SAVE'},
-        description='FRAMEの回転角度。複数選択では青い行のFRAMEの基点を中心に全体を同じ角度だけ回転します')
-    edit_color: FloatVectorProperty(name='色', size=3, subtype='COLOR', min=0, max=1,
+        description="FRAME rotation. Multiple FRAMEs rotate together around the active row's pivot", translation_context=CONTEXT)
+    edit_color: FloatVectorProperty(name='Color', size=3, subtype='COLOR', min=0, max=1,
         get=lambda s: frames.value(s, 'color'), set=lambda s, v: frames.set_value(s, 'color', v), update=redraw, options={'SKIP_SAVE'},
-        description='選択したFRAMEの枠線の色を変更します')
-    lens_reference: EnumProperty(name='換算mmの基準', default='LONG_EDGE', options=set(), update=redraw,
-        description='FRAMEと出力に共通のmm換算基準。表示だけを変更し、レンズ・構図・画角は変えません',
-        items=[('LONG_EDGE', '長辺基準', 'FRAME・出力それぞれの長辺をフルサイズの長辺36mmに合わせて換算します'),
-               ('DIAGONAL', '対角基準', 'FRAME・出力それぞれの対角を36×24mmフルサイズの対角に合わせて換算します')])
+        description='Change the outline color of the selected FRAMEs', translation_context=CONTEXT)
+    lens_reference: EnumProperty(name='Equivalent Lens Basis', default='LONG_EDGE', options=set(), update=redraw,
+        description='Shared basis for FRAME and output equivalent focal lengths. Changes the displayed millimeters only, keeping the lens, composition and field of view',
+        items=[('LONG_EDGE', 'Long Edge (36 mm)', 'Match the longer edge of each FRAME or output to the 36 mm edge of a full-frame sensor'),
+               ('DIAGONAL', 'Sensor Diagonal', 'Match the diagonal of each FRAME or output to the diagonal of a 36 by 24 mm full-frame sensor')], translation_context=CONTEXT)
     # Keep the saved enum identifiers/order from 0.1.10; they now select FOV only.
-    frame_lens_axis: EnumProperty(name='FRAMEの画角方向', default='HORIZONTAL', options=set(), update=redraw,
-        description='FRAMEの基準画角を確認する方向。切替は換算mm・レンズ・構図を変えません',
-        items=[('HORIZONTAL', '水平', 'FRAMEの横方向。FRAMEの回転に追従します'),
-               ('VERTICAL', '垂直', 'FRAMEの縦方向。FRAMEの回転に追従します'),
-               ('DIAGONAL', '対角', 'FRAMEの左下から右上への対角。FRAMEの回転に追従します')])
-    output_lens_axis: EnumProperty(name='出力の画角方向', default='HORIZONTAL', options=set(), update=redraw,
-        description='出力全体の基準画角を確認する方向。切替は換算mm・レンズ・構図を変えません。出力倍率・領域クロップは含みません',
-        items=[('HORIZONTAL', '水平', '出力全体の横方向'),
-               ('VERTICAL', '垂直', '出力全体の縦方向'),
-               ('DIAGONAL', '対角', '出力全体の対角')])
+    frame_lens_axis: EnumProperty(name='FRAME FOV Axis', default='HORIZONTAL', options=set(), update=redraw,
+        description='Direction used to measure FRAME field of view. Switching keeps the equivalent focal length, lens and composition',
+        items=[('HORIZONTAL', 'Horizontal', 'Across the FRAME width, following its rotation'),
+               ('VERTICAL', 'Vertical', 'Across the FRAME height, following its rotation'),
+               ('DIAGONAL', 'Diagonal', "Along the FRAME's bottom-left to top-right diagonal, following its rotation")], translation_context=CONTEXT)
+    output_lens_axis: EnumProperty(name='Output FOV Axis', default='HORIZONTAL', options=set(), update=redraw,
+        description="Direction used to measure the full output's field of view. Switching keeps the equivalent focal length, lens and composition. Excludes resolution percentage and render-region cropping",
+        items=[('HORIZONTAL', 'Horizontal', 'Across the full output width'),
+               ('VERTICAL', 'Vertical', 'Across the full output height'),
+               ('DIAGONAL', 'Diagonal', 'Along the full output diagonal')], translation_context=CONTEXT)
     # Computed UI properties belong to the Object ID so native numeric editing
     # is undoable. They never store a second lens value or participate in copies.
-    frame_focal: FloatProperty(name='換算焦点距離 mm', default=50, min=0.000001, max=1e12,
+    frame_focal: FloatProperty(name='Equivalent Focal Length (mm)', default=50, min=0.000001, max=1e12,
                               step=10, precision=2, subtype='DISTANCE_CAMERA', unit='CAMERA', options={'SKIP_SAVE'},
                               get=get_frame_focal, set=set_frame_focal, update=redraw,
-                              description='カメラの焦点距離を変更します。選択した1枚のFRAMEを基準にフルサイズ換算で指定できます')
-    frame_angle: FloatProperty(name='基準画角 °', default=degrees(2 * atan(18 / 50)), min=0.000001, max=179.9999,
+                              description='Change the camera lens using the full-frame equivalent focal length of the single selected FRAME', translation_context=CONTEXT)
+    frame_angle: FloatProperty(name='Field of View (degrees)', default=degrees(2 * atan(18 / 50)), min=0.000001, max=179.9999,
                               step=10, precision=2, options={'SKIP_SAVE'},
                               get=get_frame_angle, set=set_frame_angle, update=redraw,
-                              description='カメラの焦点距離を変更します。選択した1枚のFRAMEを基準に、指定方向の画角を調整します。数値は中心配置に換算した画角です')
-    frame_angle_ui: FloatProperty(name='基準画角', subtype='ANGLE', unit='ROTATION',
+                              description="Change the camera lens using the single selected FRAME's field of view along the chosen axis. The angle is measured as if the FRAME were centered on the optical axis", translation_context=CONTEXT)
+    frame_angle_ui: FloatProperty(name='Field of View', subtype='ANGLE', unit='ROTATION',
         min=radians(0.000001), max=radians(179.9999), step=10, precision=4, options={'SKIP_SAVE'},
         get=lambda s: radians(get_frame_angle(s)), set=lambda s, v: set_frame_angle(s, degrees(v)), update=redraw,
-        description='カメラの焦点距離を変更します。選択した1枚のFRAMEを基準に、指定方向の画角を調整します。数値は中心配置に換算した画角です')
-    show_mask: BoolProperty(name='FRAME外をマスク', default=False, update=redraw)
-    mask_source: EnumProperty(name='対象', items=[
-        ('ACTIVE', '選択FRAME', '青い行のFRAMEを使用します。選択がないときはマスクしません'),
-        ('ALL', '全FRAMEの通過範囲', '一覧順の全FRAMEを使用します。枠線の表示・PSD出力のチェックとは独立です')],
-        default='ALL', update=redraw)
-    mask_opacity: FloatProperty(name='不透明度 %', default=80, min=0, max=100, precision=1, update=redraw)
-    export_mask: BoolProperty(name='マスクをPSDへ', default=False,
-                             description='画面のマスク表示とは独立して、同じ対象・不透明度で別レイヤーへ出力します')
-    ratio_x: FloatProperty(name='縦横比（共通）', default=16, min=0.01, max=1000, update=redraw,
-                          description='このカメラの全FRAMEに共通する縦横比の横の値です')
-    ratio_y: FloatProperty(name='縦', default=9, min=0.01, max=1000, update=redraw,
-                          description='このカメラの全FRAMEに共通する縦横比の縦の値です')
-    path_type: EnumProperty(name='軌道', items=[
-        ('LINE', '直線', 'FRAMEの中心を直線で結びます。接線ハンドルの設定は保持します'),
-        ('BEZIER', '曲線', 'ベジェの接線ハンドルでFRAMEの中心の移動を曲線にします')], default='BEZIER', update=redraw)
+        description="Change the camera lens using the single selected FRAME's field of view along the chosen axis. The angle is measured as if the FRAME were centered on the optical axis", translation_context=CONTEXT)
+    show_mask: BoolProperty(name='Show Mask', default=False, update=redraw, translation_context=CONTEXT)
+    mask_source: EnumProperty(name='Source', items=[
+        ('ACTIVE', 'Selected FRAME', 'Use the selected FRAME in the active row. No mask is shown when nothing is selected'),
+        ('ALL', "All FRAMEs' Sweep", 'Use all FRAMEs in list order, independently of outline visibility and PSD export checkboxes')],
+        default='ALL', update=redraw, translation_context=CONTEXT)
+    mask_opacity: FloatProperty(name='Opacity %', default=80, min=0, max=100, precision=1, update=redraw, translation_context=CONTEXT)
+    export_mask: BoolProperty(name='Mask to PSD', default=False,
+                             description='Export the same mask source and opacity as a separate layer, independently of viewport mask visibility', translation_context=CONTEXT)
+    ratio_x: FloatProperty(name='Shared Aspect', default=16, min=0.01, max=1000, update=redraw,
+                          description='Width component of the aspect ratio shared by all FRAMEs in this camera', translation_context=CONTEXT)
+    ratio_y: FloatProperty(name='Y', default=9, min=0.01, max=1000, update=redraw,
+                          description='Height component of the aspect ratio shared by all FRAMEs in this camera', translation_context=CONTEXT)
+    path_type: EnumProperty(name='Motion Path', items=[
+        ('LINE', 'Straight', 'Connect FRAME centers with straight lines, retaining the tangent handle settings'),
+        ('BEZIER', 'Bezier', 'Use Bezier tangent handles to curve the motion between FRAME centers')], default='BEZIER', update=redraw, translation_context=CONTEXT)
     corner_paths: BoolProperty(default=False, options={'HIDDEN'}, update=redraw)
-    path_points: EnumProperty(name='軌道位置', items=[
-        ('CENTER', '中央', 'FRAME中心の軌道を表示・出力します', 0),
-        ('CORNERS', '四隅', '四隅の軌道だけを表示・出力します', 1),
-        ('TOP_LEFT', '左上', '回転前の左上の角を追跡します', 2),
-        ('TOP_RIGHT', '右上', '回転前の右上の角を追跡します', 3),
-        ('BOTTOM_RIGHT', '右下', '回転前の右下の角を追跡します', 4),
-        ('BOTTOM_LEFT', '左下', '回転前の左下の角を追跡します', 5),
-        ('ALL', '中央＋四隅', '中央と四隅の5本を表示・出力します', 6)],
+    path_points: EnumProperty(name='Path Position', items=[
+        ('CENTER', 'Center', 'Show and export the path of the FRAME center', 0),
+        ('CORNERS', 'Four Corners', 'Show and export only the four corner paths', 1),
+        ('TOP_LEFT', 'Top Left', 'Track the corner that is at the top left before rotation', 2),
+        ('TOP_RIGHT', 'Top Right', 'Track the corner that is at the top right before rotation', 3),
+        ('BOTTOM_RIGHT', 'Bottom Right', 'Track the corner that is at the bottom right before rotation', 4),
+        ('BOTTOM_LEFT', 'Bottom Left', 'Track the corner that is at the bottom left before rotation', 5),
+        ('ALL', 'Center + Corners', 'Show and export five paths: the center and all four corners', 6)],
         default='CENTER', get=get_path_points, set=set_path_points, update=redraw,
-        description='ビューとPSDに描く軌道の位置です。FRAMEの動きや通過範囲のマスクは変えません')
-    show_path: BoolProperty(name='軌道を表示', default=True, update=redraw)
-    export_path: BoolProperty(name='軌道をPSDへ', default=True)
-    path_color: FloatVectorProperty(name='軌道色', size=3, subtype='COLOR', min=0, max=1, default=(1, 0.35, 0.08), update=redraw)
-    line_width: FloatProperty(name='線幅 px', default=2, min=0.5, max=32, update=redraw,
-                             description='ビューポートとPSDに共通のガイド線幅です。出力倍率100%でのピクセル数を指定します')
-    show_guides: BoolProperty(name='ガイドを表示', default=True, update=redraw)
-    show_axis: BoolProperty(name='光軸', default=True, update=redraw)
-    show_horizon: BoolProperty(name='アイレベル', default=True, update=redraw)
-    export_axis: BoolProperty(name='光軸をPSDへ', default=True,
-                             description='画面表示とは独立して光軸を出力します。用紙外にある場合は出力しません')
-    export_horizon: BoolProperty(name='アイレベルをPSDへ', default=True,
-                                description='画面表示とは独立してアイレベルを出力します。用紙外にある場合や正投影では出力しません')
+        description='Path points shown in the viewport and PSD. Does not change FRAME motion or the swept-area mask', translation_context=CONTEXT)
+    show_path: BoolProperty(name='Show Path', default=True, update=redraw, translation_context=CONTEXT)
+    export_path: BoolProperty(name='Path to PSD', default=True, translation_context=CONTEXT)
+    path_color: FloatVectorProperty(name='Path Color', size=3, subtype='COLOR', min=0, max=1, default=(1, 0.35, 0.08), update=redraw, translation_context=CONTEXT)
+    line_width: FloatProperty(name='Line Width (px)', default=2, min=0.5, max=32, update=redraw,
+                             description='Guide line width shared by the viewport and PSD, in pixels at 100% output resolution', translation_context=CONTEXT)
+    show_guides: BoolProperty(name='Show Guides', default=True, update=redraw, translation_context=CONTEXT)
+    show_axis: BoolProperty(name='Optical Axis', default=True, update=redraw, translation_context=CONTEXT)
+    show_horizon: BoolProperty(name='Eye Level', default=True, update=redraw, translation_context=CONTEXT)
+    export_axis: BoolProperty(name='Optical Axis to PSD', default=True,
+                             description='Export the optical axis independently of viewport visibility, when it falls within the paper', translation_context=CONTEXT)
+    export_horizon: BoolProperty(name='Eye Level to PSD', default=True,
+                                description='Export the eye level independently of viewport visibility, when it crosses the paper in a perspective camera', translation_context=CONTEXT)
 
 
 class CFCameraEntry(bpy.types.PropertyGroup):
@@ -254,9 +255,9 @@ def register():
     bpy.types.Scene.cf_scene = PointerProperty(type=CFScene)
     # A UI proxy for the current RegionView3D; no duplicate saved zoom state.
     bpy.types.WindowManager.cf_view_scale = FloatProperty(
-        name='表示倍率 %', min=0.01, max=100000, soft_min=5, soft_max=200, precision=1, step=100,
-        description='用紙の表示倍率。100%は用紙幅と表示幅が同じピクセル数。カメラの構図や出力サイズは変更しません',
-        get=get_view_scale, set=set_view_scale, options={'SKIP_SAVE'})
+        name='View Zoom %', min=0.01, max=100000, soft_min=5, soft_max=200, precision=1, step=100,
+        description='Paper zoom in the viewport. At 100%, paper and display widths have the same pixel count. Keeps camera composition and output dimensions',
+        get=get_view_scale, set=set_view_scale, options={'SKIP_SAVE'}, translation_context=CONTEXT)
 
 
 def unregister():

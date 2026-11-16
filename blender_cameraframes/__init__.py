@@ -3,16 +3,16 @@
 bl_info = {
     'name': 'Camera Frames',
     'author': 'Camera Frames contributors',
-    'version': (0, 1, 17),
+    'version': (0, 1, 18),
     'blender': (5, 2, 0),
     'location': '3D View > Sidebar > Camera Frames',
     'description': 'Preserve camera composition, edit shooting guides and export layered PSD',
     'category': 'Camera',
 }
 
-from . import properties, camera, presets, creation, operators, interaction, ui, overlay
+from . import translations, properties, camera, presets, creation, operators, interaction, ui, overlay
 
-MODULES = (properties, camera, presets, creation, operators, interaction, ui, overlay)
+MODULES = (translations, properties, camera, presets, creation, operators, interaction, ui, overlay)
 
 
 def register():
