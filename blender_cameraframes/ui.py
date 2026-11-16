@@ -3,12 +3,14 @@ import bpy
 from . import camera, geometry, overlay, frames
 
 
-def lens_row(layout, settings, axis):
-    values = layout.split(factor=0.29, align=True)
-    focal = values.row(align=True)
-    angle = values.split(factor=0.535, align=True)
-    angle.prop(settings, axis, text='')
-    return focal, angle.row(align=True)
+def lens_row(layout, settings, axis, label):
+    row = layout.row(align=True)
+    target, focal, angle, direction = (row.row(align=True) for _ in range(4))
+    for column, width in zip((target, focal, angle, direction), (3.3, 3.0, 2.5, 2.3)):
+        column.ui_units_x = width
+    target.label(text=label)
+    direction.prop(settings, axis, text='')
+    return focal, angle
 
 
 def draw_lens_values(layout, scene, obj):
@@ -16,11 +18,11 @@ def draw_lens_values(layout, scene, obj):
         return
     s = obj.cf_camera
     error = None
-    header = layout.row(align=True)
-    header.label(text='フルサイズ換算')
-    header.popover(panel='CF_PT_lens_details', text='長辺基準' if s.lens_reference == 'LONG_EDGE' else '対角基準')
+    header = layout.split(factor=0.78, align=True)
+    header.label(text='フルサイズ換算焦点距離・画角')
+    header.popover(panel='CF_PT_lens_details', text='長辺' if s.lens_reference == 'LONG_EDGE' else '対角')
     if s.frames:
-        focal, angle = lens_row(layout, s, 'frame_lens_axis')
+        focal, angle = lens_row(layout, s, 'frame_lens_axis', '選択FRAME')
         single = len(frames.selected_indices(s)) == 1
         if single:
             try:
@@ -34,7 +36,7 @@ def draw_lens_values(layout, scene, obj):
         else:
             focal.label(text='— mm')
             angle.label(text='—°')
-    focal, angle = lens_row(layout, s, 'output_lens_axis')
+    focal, angle = lens_row(layout, s, 'output_lens_axis', '出力全体')
     mm, degrees = geometry.output_lens(camera.bounds(scene, obj), s.output_lens_axis, s.lens_reference)
     number = f'{mm:.2f}' if mm < 1e6 else f'{mm:.4g}'
     focal.alignment = angle.alignment = 'RIGHT'
@@ -76,8 +78,11 @@ class CF_PT_main(bpy.types.Panel):
         for i, entry in enumerate(scene.cf_scene.cameras):
             row = layout.row(align=True)
             obj = entry.camera
-            row.operator('cf.activate_camera', text=obj.name if obj else '(削除済み)', translate=False, icon='CAMERA_DATA',
-                         depress=i == scene.cf_scene.active_index).index = i
+            selected = obj is not None and i == scene.cf_scene.active_index
+            row.operator('cf.activate_camera', text='' if selected else obj.name if obj else '(削除済み)',
+                         translate=False, icon='CAMERA_DATA', depress=selected).index = i
+            if selected:
+                row.prop(obj, 'name', text='')
             row.operator('cf.unregister_camera', text='', icon='X').index = i
         obj = camera.active(scene)
         if not obj:

@@ -173,14 +173,14 @@ class CFCamera(bpy.types.PropertyGroup):
     # Keep the saved enum identifiers/order from 0.1.10; they now select FOV only.
     frame_lens_axis: EnumProperty(name='FRAMEの画角方向', default='HORIZONTAL', options=set(), update=redraw,
         description='FRAMEの基準画角を確認する方向。切替は換算mm・レンズ・構図を変えません',
-        items=[('HORIZONTAL', 'FRAME 水平', 'FRAMEの横方向。FRAMEの回転に追従します'),
-               ('VERTICAL', 'FRAME 垂直', 'FRAMEの縦方向。FRAMEの回転に追従します'),
-               ('DIAGONAL', 'FRAME 対角', 'FRAMEの左下から右上への対角。FRAMEの回転に追従します')])
+        items=[('HORIZONTAL', '水平', 'FRAMEの横方向。FRAMEの回転に追従します'),
+               ('VERTICAL', '垂直', 'FRAMEの縦方向。FRAMEの回転に追従します'),
+               ('DIAGONAL', '対角', 'FRAMEの左下から右上への対角。FRAMEの回転に追従します')])
     output_lens_axis: EnumProperty(name='出力の画角方向', default='HORIZONTAL', options=set(), update=redraw,
         description='出力全体の基準画角を確認する方向。切替は換算mm・レンズ・構図を変えません。出力倍率・領域クロップは含みません',
-        items=[('HORIZONTAL', '出力 水平', '出力全体の横方向'),
-               ('VERTICAL', '出力 垂直', '出力全体の縦方向'),
-               ('DIAGONAL', '出力 対角', '出力全体の対角')])
+        items=[('HORIZONTAL', '水平', '出力全体の横方向'),
+               ('VERTICAL', '垂直', '出力全体の縦方向'),
+               ('DIAGONAL', '対角', '出力全体の対角')])
     # Computed UI properties belong to the Object ID so native numeric editing
     # is undoable. They never store a second lens value or participate in copies.
     frame_focal: FloatProperty(name='換算焦点距離 mm', default=50, min=0.000001, max=1e12,

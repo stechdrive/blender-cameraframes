@@ -27,7 +27,7 @@ def collection_selectable(view_layer, target):
     return False
 
 
-def create(context, values):
+def create(context, values, *, name='Camera'):
     v = presets.validate(values)
     layer = context.view_layer.active_layer_collection
     collection = layer.collection
@@ -44,8 +44,9 @@ def create(context, values):
     old_view = (rv.view_perspective, space.camera) if rv else None
     data, obj = None, None
     try:
-        data = bpy.data.cameras.new('Camera')
-        obj = bpy.data.objects.new('Camera', data)
+        name = name.strip() or 'Camera'
+        data = bpy.data.cameras.new(name)
+        obj = bpy.data.objects.new(name, data)
         collection.objects.link(obj)
         if not obj.visible_get(view_layer=context.view_layer):
             raise ValueError('追加先のコレクションが非表示です')
@@ -109,6 +110,8 @@ class CF_OT_create_camera(bpy.types.Operator):
     bl_label = 'カメラを新規作成'
     bl_description = '現在のコレクションに、用紙サイズとFRAME Aを設定したカメラを作成します'
     bl_options = {'UNDO'}
+    camera_name: StringProperty(name='カメラ名', default='Camera', options={'SKIP_SAVE'},
+        description='作成するカメラオブジェクトの名前。作成後も一覧やアウトライナーで変更できます')
     preset: EnumProperty(name='プリセット', items=presets.items, update=use_preset)
     width: IntProperty(name='用紙 幅', default=1754, min=4, max=30000)
     height: IntProperty(name='高さ', default=1240, min=4, max=30000)
@@ -147,6 +150,7 @@ class CF_OT_create_camera(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = False
+        layout.prop(self, 'camera_name')
         layout.prop(self, 'preset')
         row = layout.row(align=True)
         row.prop(self, 'width'); row.prop(self, 'height')
@@ -163,7 +167,7 @@ class CF_OT_create_camera(bpy.types.Operator):
     def execute(self, context):
         try:
             values = self.values()
-            create(context, values)
+            create(context, values, name=self.camera_name)
         except (ValueError, RuntimeError) as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
